@@ -74,7 +74,56 @@ class MemberManager
         return [
             'members'     => $members,
             'departments' => array_values($deptList),
+            'club_config' => self::getClubConfig(),
         ];
+    }
+
+    public static function getClubConfig(): array
+    {
+        $s = Database::getSettings();
+        $appName = trim((string)($s['app_name'] ?? 'VereinsCloud'));
+        return [
+            'club_name'          => trim((string)($s['club_name'] ?? '')) ?: $appName,
+            'club_city'          => trim((string)($s['club_city'] ?? '')),
+            'club_sign1'         => trim((string)($s['club_sign1'] ?? '')) ?: '1. Vorsitzende/r',
+            'club_sign2'         => trim((string)($s['club_sign2'] ?? '')) ?: 'Schatzmeister/in',
+            'sepa_creditor_iban' => trim((string)($s['sepa_creditor_iban'] ?? '')),
+            'sepa_creditor_bic'  => trim((string)($s['sepa_creditor_bic'] ?? '')),
+            'sepa_creditor_id'   => trim((string)($s['sepa_creditor_id'] ?? '')),
+            'sepa_remittance'    => trim((string)($s['sepa_remittance'] ?? '')) ?: ('Mitgliedsbeitrag ' . date('Y')),
+        ];
+    }
+
+    public static function saveClubConfig(array $input): array
+    {
+        $clubName = mb_substr(trim((string)($input['club_name'] ?? '')), 0, 100);
+        if ($clubName === '') {
+            throw new RuntimeException('Bitte geben Sie den Vereinsnamen an.');
+        }
+        $clubCity  = mb_substr(trim((string)($input['club_city'] ?? '')), 0, 100);
+        $clubSign1 = mb_substr(trim((string)($input['club_sign1'] ?? '')), 0, 100) ?: '1. Vorsitzende/r';
+        $clubSign2 = mb_substr(trim((string)($input['club_sign2'] ?? '')), 0, 100) ?: 'Schatzmeister/in';
+
+        $credIbanRaw = trim((string)($input['sepa_creditor_iban'] ?? ''));
+        $ibanInfo    = self::validateIban($credIbanRaw);
+        if (!$ibanInfo['valid']) {
+            throw new RuntimeException('Ungültige Vereins-IBAN: ' . $ibanInfo['error']);
+        }
+        $credIban = $ibanInfo['normalized'];
+        $credBic  = strtoupper(str_replace(' ', '', mb_substr(trim((string)($input['sepa_creditor_bic'] ?? '')), 0, 11)));
+        $credId   = strtoupper(str_replace(' ', '', mb_substr(trim((string)($input['sepa_creditor_id'] ?? '')), 0, 35)));
+        $remit    = mb_substr(trim((string)($input['sepa_remittance'] ?? '')), 0, 100) ?: ('Mitgliedsbeitrag ' . date('Y'));
+
+        Database::setSetting('club_name', $clubName);
+        Database::setSetting('club_city', $clubCity);
+        Database::setSetting('club_sign1', $clubSign1);
+        Database::setSetting('club_sign2', $clubSign2);
+        Database::setSetting('sepa_creditor_iban', $credIban);
+        Database::setSetting('sepa_creditor_bic', $credBic);
+        Database::setSetting('sepa_creditor_id', $credId);
+        Database::setSetting('sepa_remittance', $remit);
+
+        return self::getClubConfig();
     }
 
     private static function normalizeDate(?string $raw): ?string
@@ -434,5 +483,144 @@ class MemberManager
         }
 
         return $imported;
+    }
+
+    private static function sepaClean(string $text, int $maxLen = 70): string
+    {
+        $s = strtr($text, [
+            'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue',
+            'Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue',
+            'ß' => 'ss', '&' => '+',
+        ]);
+        $s = (string)preg_replace("/[^A-Za-z0-9\/\-?:().,'+ ]+/", ' ', $s);
+        $s = trim((string)preg_replace('/\s+/', ' ', $s));
+        if ($s === '') {
+            $s = '-';
+        }
+        return substr($s, 0, $maxLen);
+    }
+
+    public static function streamSepaPain008Xml(array $params): never
+    {
+        $cfg = self::getClubConfig();
+        $credName = $cfg['club_name'];
+        $credIban = $cfg['sepa_creditor_iban'];
+        $credBic  = $cfg['sepa_creditor_bic'];
+        $credId   = $cfg['sepa_creditor_id'];
+
+        if ($credIban === '' || !self::validateIban($credIban)['valid']) {
+            throw new RuntimeException('Bitte hinterlegen Sie zuerst eine gültige Vereins-IBAN in den SEPA-/Vereinseinstellungen.');
+        }
+        if ($credId === '') {
+            throw new RuntimeException('Bitte hinterlegen Sie zuerst die Gläubiger-Identifikationsnummer (z. B. DE98ZZZ...) in den SEPA-Einstellungen.');
+        }
+
+        $collDate = trim((string)($params['collection_date'] ?? ''));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $collDate)) {
+            $collDate = date('Y-m-d', strtotime('+5 days'));
+        }
+        $seqType = in_array($params['seq_type'] ?? '', ['RCUR', 'FRST', 'OOFF'], true)
+            ? (string)$params['seq_type']
+            : 'RCUR';
+        $remitBase = trim((string)($params['remittance'] ?? '')) ?: $cfg['sepa_remittance'];
+        $deptFilter = trim((string)($params['department'] ?? 'all'));
+
+        $all = self::listMembers()['members'];
+        $txList = [];
+        $totalSum = 0.0;
+
+        foreach ($all as $m) {
+            if ($m['status'] === 'Ausgetreten') {
+                continue;
+            }
+            if ($deptFilter !== '' && $deptFilter !== 'all' && $m['department'] !== $deptFilter) {
+                continue;
+            }
+            $fee = round((float)$m['fee_amount'], 2);
+            if ($fee <= 0) {
+                continue;
+            }
+            if ($m['iban'] === '' || !$m['iban_valid'] || trim((string)$m['mandate_ref']) === '') {
+                continue;
+            }
+            $txList[] = $m;
+            $totalSum += $fee;
+        }
+
+        if (count($txList) === 0) {
+            throw new RuntimeException('Keine abrufbaren SEPA-Lastschriften gefunden (Mitglieder benötigen Beitrag > 0 €, gültige IBAN und Mandatsreferenz).');
+        }
+
+        $msgId    = 'SEPA-' . date('YmdHis') . '-' . substr(bin2hex(random_bytes(3)), 0, 6);
+        $pmtInfId = 'PMT-' . date('YmdHis');
+        $creDtTm  = gmdate('Y-m-d\TH:i:s\Z');
+        $nbOfTxs  = count($txList);
+        $ctrlSum  = number_format($totalSum, 2, '.', '');
+        $xEsc     = fn(string $v) => htmlspecialchars($v, ENT_XML1 | ENT_COMPAT, 'UTF-8');
+
+        $credAgXml = $credBic !== ''
+            ? '<BIC>' . $xEsc($credBic) . '</BIC>'
+            : '<Othr><Id>NOTPROVIDED</Id></Othr>';
+
+        $xml = [];
+        $xml[] = '<?xml version="1.0" encoding="UTF-8"?>';
+        $xml[] = '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.001.02" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:iso:std:iso:20022:tech:xsd:pain.008.001.02 pain.008.001.02.xsd">';
+        $xml[] = '  <CstmrDrctDbtInitn>';
+        $xml[] = '    <GrpHdr>';
+        $xml[] = '      <MsgId>' . $xEsc($msgId) . '</MsgId>';
+        $xml[] = '      <CreDtTm>' . $xEsc($creDtTm) . '</CreDtTm>';
+        $xml[] = '      <NbOfTxs>' . $nbOfTxs . '</NbOfTxs>';
+        $xml[] = '      <CtrlSum>' . $ctrlSum . '</CtrlSum>';
+        $xml[] = '      <InitgPty><Nm>' . $xEsc(self::sepaClean($credName, 70)) . '</Nm></InitgPty>';
+        $xml[] = '    </GrpHdr>';
+        $xml[] = '    <PmtInf>';
+        $xml[] = '      <PmtInfId>' . $xEsc($pmtInfId) . '</PmtInfId>';
+        $xml[] = '      <PmtMtd>DD</PmtMtd>';
+        $xml[] = '      <BtchBookg>true</BtchBookg>';
+        $xml[] = '      <NbOfTxs>' . $nbOfTxs . '</NbOfTxs>';
+        $xml[] = '      <CtrlSum>' . $ctrlSum . '</CtrlSum>';
+        $xml[] = '      <PmtTpInf>';
+        $xml[] = '        <SvcLvl><Cd>SEPA</Cd></SvcLvl>';
+        $xml[] = '        <LclInstrm><Cd>CORE</Cd></LclInstrm>';
+        $xml[] = '        <SeqTp>' . $xEsc($seqType) . '</SeqTp>';
+        $xml[] = '      </PmtTpInf>';
+        $xml[] = '      <ReqdColltnDt>' . $xEsc($collDate) . '</ReqdColltnDt>';
+        $xml[] = '      <Cdtr><Nm>' . $xEsc(self::sepaClean($credName, 70)) . '</Nm></Cdtr>';
+        $xml[] = '      <CdtrAcct><Id><IBAN>' . $xEsc($credIban) . '</IBAN></Id></CdtrAcct>';
+        $xml[] = '      <CdtrAgt><FinInstnId>' . $credAgXml . '</FinInstnId></CdtrAgt>';
+        $xml[] = '      <ChrgBr>SLEV</ChrgBr>';
+        $xml[] = '      <CdtrSchmeId><Id><PrvtId><Othr><Id>' . $xEsc($credId) . '</Id><SchmeNm><Prtry>SEPA</Prtry></SchmeNm></Othr></PrvtId></Id></CdtrSchmeId>';
+
+        foreach ($txList as $m) {
+            $feeStr = number_format((float)$m['fee_amount'], 2, '.', '');
+            $e2eId  = self::sepaClean('MB-' . ($m['member_no'] ?: $m['id']) . '-' . date('Y'), 35);
+            $mndtId = self::sepaClean((string)$m['mandate_ref'], 35);
+            $sgntr  = (!empty($m['joined_at']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$m['joined_at']))
+                ? (string)$m['joined_at']
+                : '2020-01-01';
+            $dbtrNm = self::sepaClean(trim($m['first_name'] . ' ' . $m['last_name']), 70);
+            $ustrd  = self::sepaClean($remitBase . ' - ' . trim($m['first_name'] . ' ' . $m['last_name']) . ($m['member_no'] ? ' (' . $m['member_no'] . ')' : ''), 140);
+
+            $xml[] = '      <DrctDbtTxInf>';
+            $xml[] = '        <PmtId><EndToEndId>' . $xEsc($e2eId) . '</EndToEndId></PmtId>';
+            $xml[] = '        <InstdAmt Ccy="EUR">' . $feeStr . '</InstdAmt>';
+            $xml[] = '        <DrctDbtTx><MndtRltdInf><MndtId>' . $xEsc($mndtId) . '</MndtId><DtOfSgntr>' . $xEsc($sgntr) . '</DtOfSgntr></MndtRltdInf></DrctDbtTx>';
+            $xml[] = '        <DbtrAgt><FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId></DbtrAgt>';
+            $xml[] = '        <Dbtr><Nm>' . $xEsc($dbtrNm) . '</Nm></Dbtr>';
+            $xml[] = '        <DbtrAcct><Id><IBAN>' . $xEsc($m['iban']) . '</IBAN></Id></DbtrAcct>';
+            $xml[] = '        <RmtInf><Ustrd>' . $xEsc($ustrd) . '</Ustrd></RmtInf>';
+            $xml[] = '      </DrctDbtTxInf>';
+        }
+
+        $xml[] = '    </PmtInf>';
+        $xml[] = '  </CstmrDrctDbtInitn>';
+        $xml[] = '</Document>';
+
+        $filename = 'sepa-lastschrift-' . $collDate . '.xml';
+        header('Content-Type: application/xml; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-store, no-cache, must-revalidate');
+        echo implode("\r\n", $xml);
+        exit;
     }
 }

@@ -3893,6 +3893,7 @@
             cachedMembersData = {
                 members: res.members || [],
                 departments: res.departments || [],
+                club_config: res.club_config || {},
             };
             if (state.view === 'members_stats') {
                 renderMembersStatsView();
@@ -4090,6 +4091,9 @@
                 <td><strong>${esc(j.member.last_name)}, ${esc(j.member.first_name)}</strong></td>
                 <td class="small muted">Eintritt: ${esc(formatDeDate(j.member.joined_at, true))}</td>
                 <td class="small">${esc(j.member.department || '—')}</td>
+                <td style="text-align:right">
+                    <button type="button" class="btn btn-ghost btn-sm" data-print-cert-id="${j.member.id}" data-print-cert-years="${j.years}">🏅 Urkunde</button>
+                </td>
             </tr>
         `).join('');
 
@@ -4123,6 +4127,10 @@
                         <option value="${thisYear + 1}" ${targetYear === thisYear + 1 ? 'selected' : ''}>${thisYear + 1} (Vorschau nächstes Jahr)</option>
                     </select>
                 </div>
+                <div style="display:flex;gap:0.45rem;flex-wrap:wrap">
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-jub-club-cfg">⚙️ Vereinsdaten & Unterschriften</button>
+                    ${jubilees.length > 0 ? `<button type="button" class="btn btn-primary btn-sm" id="btn-jub-print-all">🖨️ Alle Urkunden drucken (${jubilees.length})</button>` : ''}
+                </div>
             </div>
 
             <div class="stats-grid">
@@ -4131,8 +4139,8 @@
                     <p class="small muted" style="margin:0">Mitglieder mit 10, 15, 20, 25, 30, 40, 50, 60, 65, 70+ Jahren Vereinszugehörigkeit:</p>
                     <div class="file-table-wrap">
                         <table class="file-table">
-                            <thead><tr><th>Jubiläum</th><th>Mitglied</th><th>Eintritt</th><th>Abteilung</th></tr></thead>
-                            <tbody>${jubRows || `<tr><td colspan="4" class="empty-cell">Keine runden Vereinsjubiläen im Jahr ${targetYear}.</td></tr>`}</tbody>
+                            <thead><tr><th>Jubiläum</th><th>Mitglied</th><th>Eintritt</th><th>Abteilung</th><th style="text-align:right">Urkunde</th></tr></thead>
+                            <tbody>${jubRows || `<tr><td colspan="5" class="empty-cell">Keine runden Vereinsjubiläen im Jahr ${targetYear}.</td></tr>`}</tbody>
                         </table>
                     </div>
                 </div>
@@ -4163,6 +4171,22 @@
         $('#jub-year-sel', container)?.addEventListener('change', (e) => {
             state.jubileeYear = Number(e.target.value);
             renderMembersJubileesView();
+        });
+        $('#btn-jub-club-cfg', container)?.addEventListener('click', () => {
+            openClubSepaConfigModal(() => renderMembersJubileesView());
+        });
+        $('#btn-jub-print-all', container)?.addEventListener('click', () => {
+            printHonorCertificates(jubilees, targetYear);
+        });
+        $$('[data-print-cert-id]', container).forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const memId = Number(btn.dataset.printCertId);
+                const yrs = Number(btn.dataset.printCertYears);
+                const found = jubilees.find((j) => j.member.id === memId);
+                if (found) {
+                    printHonorCertificates([found], targetYear);
+                }
+            });
         });
     }
 
@@ -4323,11 +4347,18 @@
         }).join('');
 
         container.innerHTML = `
-            <div style="display:flex;gap:0.65rem;flex-wrap:wrap;margin-bottom:1rem">
-                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">💶 Gesamte Beitragssumme: <strong>${totalFee.toFixed(2).replace('.', ',')} €</strong></span>
-                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">🏦 SEPA & IBAN gültig: <strong>${withSepa.length} von ${payers.length} Beitragszahlern</strong></span>
-                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">⚠️ SEPA unvollständig / Selbstzahler: <strong>${missingSepa.length}</strong></span>
-                ${invalidIbanCount > 0 ? `<span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem;border-color:var(--danger);color:var(--danger)">❌ Fehlerhafte IBANs: <strong>${invalidIbanCount}</strong></span>` : ''}
+            <div class="cal-header-bar" style="margin-bottom:1rem">
+                <div style="display:flex;gap:0.65rem;flex-wrap:wrap">
+                    <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">💶 Gesamte Beitragssumme: <strong>${totalFee.toFixed(2).replace('.', ',')} €</strong></span>
+                    <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">🏦 SEPA & IBAN gültig: <strong>${withSepa.length} von ${payers.length} Beitragszahlern</strong></span>
+                    <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">⚠️ SEPA unvollständig / Selbstzahler: <strong>${missingSepa.length}</strong></span>
+                    ${invalidIbanCount > 0 ? `<span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem;border-color:var(--danger);color:var(--danger)">❌ Fehlerhafte IBANs: <strong>${invalidIbanCount}</strong></span>` : ''}
+                </div>
+                <div style="display:flex;gap:0.45rem;flex-wrap:wrap">
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-fee-club-cfg">⚙️ Vereins- & SEPA-Stammdaten</button>
+                    ${payers.length > 0 ? `<button type="button" class="btn btn-ghost btn-sm" id="btn-fee-print-receipts">🧾 Beitragsquittungen drucken (${payers.length})</button>` : ''}
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-sepa-xml-export">🏦 SEPA-Lastschrift (pain.008 XML)</button>
+                </div>
             </div>
 
             <div class="stats-grid">
@@ -4359,6 +4390,15 @@
                 const m = memById.get(Number(btn.dataset.feeEdit));
                 if (m) openMemberModal(m);
             });
+        });
+        $('#btn-fee-club-cfg', container)?.addEventListener('click', () => {
+            openClubSepaConfigModal(() => renderMembersFeesView());
+        });
+        $('#btn-fee-print-receipts', container)?.addEventListener('click', () => {
+            printFeeReceipts(payers, new Date().getFullYear());
+        });
+        $('#btn-sepa-xml-export', container)?.addEventListener('click', () => {
+            openSepaXmlExportModal();
         });
     }
 
@@ -4685,8 +4725,22 @@
                 </div>
 
                 <button type="submit" class="btn btn-primary btn-block">💾 Mitglied speichern</button>
+                ${isEdit ? `
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.65rem;padding-top:0.65rem;border-top:1px solid var(--border)">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-mem-print-receipt" style="flex:1">🧾 Beitragsquittung drucken</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-mem-print-cert" style="flex:1">🏅 Ehrenurkunde drucken</button>
+                    </div>
+                ` : ''}
             </form>
         `, true);
+
+        $('#btn-mem-print-receipt')?.addEventListener('click', () => {
+            printFeeReceipts([m], new Date().getFullYear());
+        });
+        $('#btn-mem-print-cert')?.addEventListener('click', () => {
+            const yrs = m.years || (m.joined_at && /^\d{4}/.test(m.joined_at) ? (new Date().getFullYear() - Number(m.joined_at.slice(0, 4))) : 25);
+            printHonorCertificates([{ member: m, years: yrs }], new Date().getFullYear());
+        });
 
         const ibanInp = $('#mem-iban-inp');
         const ibanStatus = $('#mem-iban-status');
@@ -4769,6 +4823,615 @@
                 toast(err.message, 'error');
             }
         });
+    }
+
+    function openClubSepaConfigModal(onSaved = null) {
+        const cfg = cachedMembersData.club_config || {};
+        openModal('⚙️ Vereins- & SEPA-Stammdaten (Urkunden, Quittungen & Bankeinzug)', `
+            <form id="club-sepa-cfg-form">
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:2">
+                        <label class="small muted">Offizieller Vereinsname (Gläubiger / Urkundenkopf)</label>
+                        <input type="text" name="club_name" class="input" value="${esc(cfg.club_name || '')}" placeholder="z. B. Turn- und Sportverein 1900 e.V." required>
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Sitz / Ort des Vereins</label>
+                        <input type="text" name="club_city" class="input" value="${esc(cfg.club_city || '')}" placeholder="z. B. Musterstadt">
+                    </div>
+                </div>
+
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:1">
+                        <label class="small muted">1. Unterzeichner (auf Urkunden)</label>
+                        <input type="text" name="club_sign1" class="input" value="${esc(cfg.club_sign1 || '1. Vorsitzende/r')}" placeholder="z. B. Max Mustermann (1. Vorsitzender)">
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">2. Unterzeichner / Kassierer (Urkunden & Quittungen)</label>
+                        <input type="text" name="club_sign2" class="input" value="${esc(cfg.club_sign2 || 'Schatzmeister/in')}" placeholder="z. B. Erika Muster (Schatzmeisterin)">
+                    </div>
+                </div>
+
+                <hr style="border:none;border-top:1px solid var(--border);margin:0.85rem 0">
+                <h4 style="margin:0 0 0.5rem">🏦 SEPA-Gläubigerdaten (für pain.008 XML-Lastschrifteinzug)</h4>
+
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:2">
+                        <label class="small muted">Vereins-IBAN (Gläubigerkonto)</label>
+                        <input type="text" name="sepa_creditor_iban" id="cfg-cred-iban" class="input" value="${esc(formatIbanGroups(cfg.sepa_creditor_iban || ''))}" placeholder="DE00 0000 0000 0000 0000 00">
+                        <div id="cfg-cred-iban-status" class="small" style="margin-top:0.25rem"></div>
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Vereins-BIC (optional)</label>
+                        <input type="text" name="sepa_creditor_bic" class="input" value="${esc(cfg.sepa_creditor_bic || '')}" placeholder="z. B. GENODEF1...">
+                    </div>
+                </div>
+
+                <div class="form-row" style="margin-bottom:0.85rem">
+                    <div style="flex:1">
+                        <label class="small muted">Gläubiger-Identifikationsnummer (Bundesbank)</label>
+                        <input type="text" name="sepa_creditor_id" class="input" value="${esc(cfg.sepa_creditor_id || '')}" placeholder="DE98ZZZ09999999999">
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Standard-Verwendungszweck</label>
+                        <input type="text" name="sepa_remittance" class="input" value="${esc(cfg.sepa_remittance || `Mitgliedsbeitrag ${new Date().getFullYear()}`)}" placeholder="Mitgliedsbeitrag ${new Date().getFullYear()}">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">💾 Stammdaten speichern</button>
+            </form>
+        `, true);
+
+        const ibanInp = $('#cfg-cred-iban');
+        const ibanStatus = $('#cfg-cred-iban-status');
+        const updateFeedback = () => {
+            if (!ibanInp || !ibanStatus) return;
+            const r = validateIban(ibanInp.value);
+            if (r.empty) {
+                ibanInp.style.borderColor = '';
+                ibanStatus.innerHTML = '<span class="muted">Erforderlich für SEPA-XML-Export</span>';
+            } else if (r.valid) {
+                ibanInp.style.borderColor = 'var(--success)';
+                ibanStatus.innerHTML = `<span style="color:var(--success);font-weight:600">✅ Gültige Vereins-IBAN (${esc(r.country)} · ${r.length} Stellen)</span>`;
+            } else {
+                ibanInp.style.borderColor = 'var(--danger)';
+                ibanStatus.innerHTML = `<span style="color:var(--danger);font-weight:600">❌ ${esc(r.error)}</span>`;
+            }
+        };
+        ibanInp?.addEventListener('input', updateFeedback);
+        ibanInp?.addEventListener('blur', () => {
+            if (ibanInp.value.trim() !== '') ibanInp.value = formatIbanGroups(ibanInp.value);
+            updateFeedback();
+        });
+        updateFeedback();
+
+        $('#club-sepa-cfg-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const payload = Object.fromEntries(fd.entries());
+            const r = validateIban(payload.sepa_creditor_iban || '');
+            if (!r.valid) {
+                toast(`Ungültige Vereins-IBAN: ${r.error}`, 'error');
+                ibanInp?.focus();
+                return;
+            }
+            payload.sepa_creditor_iban = r.normalized;
+            try {
+                const res = await apiPost('members_save_club_config', payload);
+                cachedMembersData.club_config = res.club_config || payload;
+                closeModal();
+                toast('Vereins- & SEPA-Stammdaten gespeichert.');
+                if (typeof onSaved === 'function') onSaved();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+    }
+
+    function openSepaXmlExportModal() {
+        const cfg = cachedMembersData.club_config || {};
+        const all = (cachedMembersData.members || []).filter((m) => m.status !== 'Ausgetreten');
+        const departments = cachedMembersData.departments || [];
+        const defaultCollDate = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+
+        const deptOpts = [
+            `<option value="all">✦ Alle Abteilungen</option>`,
+            ...departments.map((d) => `<option value="${esc(d)}">🏷️ Nur Abteilung: ${esc(d)}</option>`),
+        ].join('');
+
+        const hasCreditorSetup = Boolean(cfg.sepa_creditor_iban && validateIban(cfg.sepa_creditor_iban).valid && cfg.sepa_creditor_id);
+
+        openModal('🏦 SEPA-Sammellastschrift (pain.008.001.02 XML) erzeugen', `
+            ${!hasCreditorSetup ? `
+                <div class="alert alert-error" style="margin-bottom:0.85rem;display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap">
+                    <span>⚠️ <strong>Vereins-IBAN oder Gläubiger-ID fehlt noch!</strong> Bitte hinterlegen Sie zuerst die Bankverbindung des Vereins.</span>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-sepa-goto-cfg">⚙️ Jetzt hinterlegen</button>
+                </div>
+            ` : `
+                <div class="code-box" style="margin-bottom:0.85rem;font-size:0.84rem">
+                    <strong>Gläubiger:</strong> ${esc(cfg.club_name)} · <strong>IBAN:</strong> ${esc(formatIbanGroups(cfg.sepa_creditor_iban))} · <strong>Gläubiger-ID:</strong> ${esc(cfg.sepa_creditor_id)}
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-sepa-goto-cfg" style="float:right;padding:0.15rem 0.5rem">⚙️ Ändern</button>
+                </div>
+            `}
+            <form id="sepa-xml-gen-form">
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:1">
+                        <label class="small muted">Fälligkeitsdatum / Einzugsdatum</label>
+                        <input type="date" name="collection_date" id="sepa-coll-date" class="input" value="${defaultCollDate}" required>
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Sequenz-Typ (SEPA Core)</label>
+                        <select name="seq_type" id="sepa-seq-type" class="input">
+                            <option value="RCUR" selected>RCUR – Folgelastschrift (Standard)</option>
+                            <option value="FRST">FRST – Erstlastschrift</option>
+                            <option value="OOFF">OOFF – Einmallastschrift</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:1">
+                        <label class="small muted">Abteilungs-Filter</label>
+                        <select name="department" id="sepa-dept-sel" class="input">${deptOpts}</select>
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Verwendungszweck</label>
+                        <input type="text" name="remittance" id="sepa-remit-inp" class="input" value="${esc(cfg.sepa_remittance || `Mitgliedsbeitrag ${new Date().getFullYear()}`)}" required>
+                    </div>
+                </div>
+
+                <div id="sepa-xml-preview-box" class="code-box" style="margin-bottom:0.85rem"></div>
+
+                <button type="submit" class="btn btn-primary btn-block" id="btn-sepa-download-submit" ${!hasCreditorSetup ? 'disabled' : ''}>
+                    🏦 pain.008.001.02.xml für Online-Banking herunterladen
+                </button>
+            </form>
+        `, true);
+
+        $('#btn-sepa-goto-cfg')?.addEventListener('click', () => {
+            openClubSepaConfigModal(() => openSepaXmlExportModal());
+        });
+
+        const deptSel = $('#sepa-dept-sel');
+        const previewBox = $('#sepa-xml-preview-box');
+        const submitBtn = $('#btn-sepa-download-submit');
+
+        const updatePreview = () => {
+            const dep = deptSel?.value || 'all';
+            const eligible = all.filter((m) => {
+                if (dep !== 'all' && m.department !== dep) return false;
+                if (Number(m.fee_amount) <= 0) return false;
+                if (!m.iban || !validateIban(m.iban).valid || !m.mandate_ref) return false;
+                return true;
+            });
+            const sum = eligible.reduce((s, m) => s + Number(m.fee_amount || 0), 0);
+            if (previewBox) {
+                previewBox.innerHTML = `
+                    <strong>📊 Vorschau Sammellastschrift:</strong><br>
+                    ✅ <strong>${eligible.length}</strong> abrufbare Lastschriften · 💶 Gesamtsumme: <strong>${sum.toFixed(2).replace('.', ',')} €</strong>
+                `;
+            }
+            if (submitBtn && hasCreditorSetup) {
+                submitBtn.disabled = eligible.length === 0;
+            }
+        };
+        deptSel?.addEventListener('change', updatePreview);
+        updatePreview();
+
+        $('#sepa-xml-gen-form')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const qs = new URLSearchParams({
+                action: 'members_sepa_xml',
+                collection_date: $('#sepa-coll-date')?.value || defaultCollDate,
+                seq_type: $('#sepa-seq-type')?.value || 'RCUR',
+                department: $('#sepa-dept-sel')?.value || 'all',
+                remittance: $('#sepa-remit-inp')?.value || '',
+            });
+            window.location.href = `api.php?${qs.toString()}`;
+            closeModal();
+            toast('SEPA-XML-Datei wird heruntergeladen.');
+        });
+    }
+
+    function printHonorCertificates(items, targetYear) {
+        if (!items || items.length === 0) {
+            toast('Keine Jubilare zum Drucken ausgewählt.', 'error');
+            return;
+        }
+        const cfg = cachedMembersData.club_config || {};
+        const clubName = cfg.club_name || state.appName || 'Turn- und Sportverein e.V.';
+        const clubCity = cfg.club_city || '';
+        const sign1 = cfg.club_sign1 || '1. Vorsitzende/r';
+        const sign2 = cfg.club_sign2 || '2. Vorsitzende/r / Schatzmeister/in';
+        const todayDe = formatDeDate(new Date().toISOString().slice(0, 10), true);
+        const placeDate = clubCity ? `${clubCity}, den ${todayDe}` : `Den ${todayDe}`;
+
+        const pagesHtml = items.map((item) => {
+            const m = item.member;
+            const yrs = item.years || 25;
+            const fullName = `${m.first_name || ''} ${m.last_name || ''}`.trim();
+            const joinedDe = m.joined_at ? formatDeDate(m.joined_at, true) : `im Jahr ${targetYear - yrs}`;
+            const medal = yrs >= 50 ? '🏆' : (yrs >= 40 ? '🥇' : (yrs >= 25 ? '🥈' : '🏅'));
+
+            return `
+                <section class="cert-page">
+                    <div class="cert-outer-frame">
+                        <div class="cert-inner-frame">
+                            <div class="cert-club">${esc(clubName)}</div>
+                            <div class="cert-medal">${medal}</div>
+                            <h1 class="cert-title">EHRENURKUNDE</h1>
+                            <p class="cert-pre">In dankbarer Anerkennung und Würdigung für</p>
+                            <div class="cert-years">${yrs} Jahre</div>
+                            <p class="cert-pre">treue Verbundenheit und Mitgliedschaft im Verein wird</p>
+                            <div class="cert-name">${esc(fullName)}</div>
+                            <p class="cert-body">
+                                (Mitglied seit ${esc(joinedDe)}${m.department ? ` · Abteilung ${esc(m.department)}` : ''})<br>
+                                mit dieser Urkunde herzlich geehrt. Wir danken für die langjährige Treue und Unterstützung unseres Vereinslebens.
+                            </p>
+                            <div class="cert-date">${esc(placeDate)}</div>
+                            <div class="cert-signatures">
+                                <div class="cert-sign-col">
+                                    <div class="cert-sign-line"></div>
+                                    <div class="cert-sign-label">${esc(sign1)}</div>
+                                </div>
+                                <div class="cert-sign-col">
+                                    <div class="cert-sign-line"></div>
+                                    <div class="cert-sign-label">${esc(sign2)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            `;
+        }).join('');
+
+        const win = window.open('', '_blank');
+        if (!win) {
+            toast('Bitte erlauben Sie Pop-ups für diese Seite, um die Druckansicht zu öffnen.', 'error');
+            return;
+        }
+        win.document.write(`<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Ehrenurkunden – ${esc(clubName)}</title>
+    <style>
+        @page { size: A4 portrait; margin: 12mm; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #e2e8f0;
+            color: #1e293b;
+            font-family: Georgia, "Times New Roman", serif;
+        }
+        .print-toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: #0f172a;
+            color: #fff;
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: system-ui, -apple-system, sans-serif;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+        }
+        .print-toolbar button {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .btn-print { background: #3b82f6; color: #fff; }
+        .btn-close { background: #334155; color: #fff; margin-left: 0.5rem; }
+        .cert-page {
+            width: 186mm;
+            height: 270mm;
+            margin: 1rem auto;
+            background: #fffdf7;
+            padding: 6mm;
+            page-break-after: always;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+        }
+        .cert-page:last-of-type { page-break-after: auto; }
+        .cert-outer-frame {
+            width: 100%;
+            height: 100%;
+            border: 4px solid #b45309;
+            padding: 3.5mm;
+        }
+        .cert-inner-frame {
+            width: 100%;
+            height: 100%;
+            border: 1.5px solid #d97706;
+            padding: 16mm 14mm;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        .cert-club {
+            font-size: 1.35rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #92400e;
+            margin-bottom: 6mm;
+        }
+        .cert-medal { font-size: 3.4rem; margin: 2mm 0 4mm; }
+        .cert-title {
+            font-size: 2.6rem;
+            letter-spacing: 0.14em;
+            color: #1e293b;
+            margin: 0 0 8mm;
+            font-weight: 700;
+        }
+        .cert-pre {
+            font-size: 1.1rem;
+            font-style: italic;
+            color: #475569;
+            margin: 2mm 0;
+        }
+        .cert-years {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #b45309;
+            margin: 3mm 0;
+            padding: 2mm 10mm;
+            border-top: 1px solid #f59e0b;
+            border-bottom: 1px solid #f59e0b;
+        }
+        .cert-name {
+            font-size: 2.15rem;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 6mm 0 4mm;
+        }
+        .cert-body {
+            font-size: 1.05rem;
+            line-height: 1.65;
+            color: #334155;
+            max-width: 138mm;
+            margin: 2mm 0 auto;
+        }
+        .cert-date {
+            font-size: 1rem;
+            color: #475569;
+            margin-bottom: 16mm;
+        }
+        .cert-signatures {
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            gap: 15mm;
+        }
+        .cert-sign-col { flex: 1; max-width: 65mm; }
+        .cert-sign-line { border-top: 1px solid #334155; margin-bottom: 2.5mm; }
+        .cert-sign-label { font-size: 0.9rem; color: #475569; font-family: system-ui, sans-serif; }
+        @media print {
+            body { background: #fff; }
+            .print-toolbar { display: none !important; }
+            .cert-page { margin: 0 auto; box-shadow: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="print-toolbar">
+        <div>🏅 <strong>${items.length} Ehrenurkunde(n)</strong> – Druckvorschau (${esc(clubName)})</div>
+        <div>
+            <button type="button" class="btn-print" onclick="window.print()">🖨️ Jetzt drucken / Als PDF speichern</button>
+            <button type="button" class="btn-close" onclick="window.close()">✕ Schließen</button>
+        </div>
+    </div>
+    ${pagesHtml}
+</body>
+</html>`);
+        win.document.close();
+    }
+
+    function printFeeReceipts(members, year) {
+        if (!members || members.length === 0) {
+            toast('Keine Mitglieder für Beitragsquittung ausgewählt.', 'error');
+            return;
+        }
+        const cfg = cachedMembersData.club_config || {};
+        const clubName = cfg.club_name || state.appName || 'Turn- und Sportverein e.V.';
+        const clubCity = cfg.club_city || '';
+        const sign2 = cfg.club_sign2 || 'Schatzmeister/in';
+        const todayDe = formatDeDate(new Date().toISOString().slice(0, 10), true);
+        const placeDate = clubCity ? `${clubCity}, den ${todayDe}` : `Den ${todayDe}`;
+
+        const pagesHtml = members.map((m) => {
+            const fullName = `${m.first_name || ''} ${m.last_name || ''}`.trim();
+            const feeStr = Number(m.fee_amount || 0).toFixed(2).replace('.', ',');
+            const ibanMasked = m.iban ? `${formatIbanGroups(m.iban.slice(0, 8))} •••• ${m.iban.slice(-4)}` : 'Überweisung / Barzahler';
+
+            return `
+                <section class="rcpt-page">
+                    <div class="rcpt-header">
+                        <div>
+                            <div class="rcpt-club">${esc(clubName)}</div>
+                            <div class="rcpt-sub">Mitgliedsbeitrags-Bestätigung / Quittung für das Kalenderjahr ${year}</div>
+                        </div>
+                        <div class="rcpt-date">${esc(placeDate)}</div>
+                    </div>
+
+                    <div class="rcpt-addr-box">
+                        <div class="rcpt-addr-label">Mitglied / Zahlungspflichtiger:</div>
+                        <strong>${esc(fullName)}</strong><br>
+                        ${m.street ? `${esc(m.street)}<br>` : ''}
+                        ${esc([m.zip, m.city].filter(Boolean).join(' '))}
+                    </div>
+
+                    <h2 class="rcpt-title">Bestätigung über gezahlte Mitgliedsbeiträge (${year})</h2>
+                    <p class="rcpt-lead">
+                        Hiermit bestätigen wir, dass für das unten genannte Vereinsmitglied im Kalenderjahr <strong>${year}</strong> der folgende satzungsgemäße Mitgliedsbeitrag ordnungsgemäß entrichtet wurde:
+                    </p>
+
+                    <table class="rcpt-table">
+                        <tbody>
+                            <tr>
+                                <th>Mitgliedsnummer</th>
+                                <td>${esc(m.member_no || String(m.id))}</td>
+                            </tr>
+                            <tr>
+                                <th>Name des Mitglieds</th>
+                                <td><strong>${esc(fullName)}</strong></td>
+                            </tr>
+                            <tr>
+                                <th>Status / Abteilung</th>
+                                <td>${esc(m.status || 'Aktiv')}${m.department ? ` · Abteilung ${esc(m.department)}` : ''}</td>
+                            </tr>
+                            <tr>
+                                <th>Abrechnungszeitraum</th>
+                                <td>01.01.${year} – 31.12.${year}</td>
+                            </tr>
+                            <tr>
+                                <th>Zahlungsweise</th>
+                                <td>${m.iban ? `SEPA-Lastschrift (${esc(ibanMasked)}${m.mandate_ref ? `, Mandat: ${esc(m.mandate_ref)}` : ''})` : 'Überweisung / Selbstzahler'}</td>
+                            </tr>
+                            <tr class="rcpt-total-row">
+                                <th>Entrichteter Jahresbeitrag</th>
+                                <td><strong>${feeStr} €</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <p class="rcpt-note">
+                        Diese Bestätigung dient zur Vorlage bei Ihren Unterlagen, der Krankenkasse (Bonusprogramm), dem Arbeitgeber oder den Steuerunterlagen.
+                    </p>
+
+                    <div class="rcpt-footer">
+                        <div class="rcpt-sign-box">
+                            <div class="rcpt-sign-line"></div>
+                            <div class="rcpt-sign-label">${esc(clubName)} · ${esc(sign2)}</div>
+                        </div>
+                    </div>
+                </section>
+            `;
+        }).join('');
+
+        const win = window.open('', '_blank');
+        if (!win) {
+            toast('Bitte erlauben Sie Pop-ups für diese Seite, um die Druckansicht zu öffnen.', 'error');
+            return;
+        }
+        win.document.write(`<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Beitragsquittungen ${year} – ${esc(clubName)}</title>
+    <style>
+        @page { size: A4 portrait; margin: 18mm; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #e2e8f0;
+            color: #0f172a;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+        .print-toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: #0f172a;
+            color: #fff;
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+        }
+        .print-toolbar button {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .btn-print { background: #3b82f6; color: #fff; }
+        .btn-close { background: #334155; color: #fff; margin-left: 0.5rem; }
+        .rcpt-page {
+            width: 174mm;
+            min-height: 245mm;
+            margin: 1rem auto;
+            background: #fff;
+            padding: 14mm;
+            page-break-after: always;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+        }
+        .rcpt-page:last-of-type { page-break-after: auto; }
+        .rcpt-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid #1e293b;
+            padding-bottom: 5mm;
+            margin-bottom: 10mm;
+        }
+        .rcpt-club { font-size: 1.35rem; font-weight: 800; color: #0f172a; }
+        .rcpt-sub { font-size: 0.85rem; color: #64748b; margin-top: 1mm; }
+        .rcpt-date { font-size: 0.9rem; color: #475569; }
+        .rcpt-addr-box {
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 4mm 5mm;
+            max-width: 85mm;
+            margin-bottom: 10mm;
+            font-size: 0.95rem;
+            line-height: 1.45;
+        }
+        .rcpt-addr-label { font-size: 0.72rem; text-transform: uppercase; color: #64748b; margin-bottom: 1.5mm; }
+        .rcpt-title { font-size: 1.25rem; margin: 0 0 4mm; color: #0f172a; }
+        .rcpt-lead { font-size: 0.95rem; line-height: 1.55; color: #334155; margin: 0 0 6mm; }
+        .rcpt-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8mm;
+        }
+        .rcpt-table th, .rcpt-table td {
+            border: 1px solid #cbd5e1;
+            padding: 3.2mm 4mm;
+            text-align: left;
+            font-size: 0.95rem;
+        }
+        .rcpt-table th { width: 42%; background: #f8fafc; color: #334155; font-weight: 600; }
+        .rcpt-total-row th, .rcpt-total-row td {
+            background: #f1f5f9;
+            font-size: 1.08rem;
+        }
+        .rcpt-note { font-size: 0.86rem; color: #64748b; line-height: 1.5; margin-bottom: auto; }
+        .rcpt-footer {
+            margin-top: 18mm;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .rcpt-sign-box { width: 75mm; text-align: center; }
+        .rcpt-sign-line { border-top: 1px solid #334155; margin-bottom: 2mm; }
+        .rcpt-sign-label { font-size: 0.85rem; color: #475569; }
+        @media print {
+            body { background: #fff; }
+            .print-toolbar { display: none !important; }
+            .rcpt-page { margin: 0 auto; box-shadow: none; padding: 4mm; }
+        }
+    </style>
+</head>
+<body>
+    <div class="print-toolbar">
+        <div>🧾 <strong>${members.length} Beitragsquittung(en) ${year}</strong> – Druckvorschau (${esc(clubName)})</div>
+        <div>
+            <button type="button" class="btn-print" onclick="window.print()">🖨️ Jetzt drucken / Als PDF speichern</button>
+            <button type="button" class="btn-close" onclick="window.close()">✕ Schließen</button>
+        </div>
+    </div>
+    ${pagesHtml}
+</body>
+</html>`);
+        win.document.close();
     }
 
     // "➕ Neu" Dropdown Menu & Upload Triggers

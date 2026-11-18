@@ -683,6 +683,19 @@ try {
             $imported = MemberManager::importCsv($csvText);
             jsonResponse(['ok' => true, 'imported' => $imported]);
 
+        case 'members_save_club_config':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            $cfg = MemberManager::saveClubConfig($input);
+            jsonResponse(['ok' => true, 'club_config' => $cfg]);
+
+        case 'members_sepa_xml':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            MemberManager::streamSepaPain008Xml($_GET);
+
         case 'admin_users':
             if (empty($user['has_admin_panel'])) {
                 throw new RuntimeException('Keine Administrationsberechtigung.');
