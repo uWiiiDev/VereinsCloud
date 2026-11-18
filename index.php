@@ -174,9 +174,9 @@ $bootData = [
                 <button type="button" class="nav-item active" data-view="files">
                     <span class="nav-icon">📁</span>
                     <span style="flex:1">Dateien</span>
-                    <span class="nav-chevron" id="btn-toggle-files-sub" title="Unterpunkte ein-/ausklappen">▾</span>
+                    <span class="nav-chevron collapsed" id="btn-toggle-files-sub" title="Unterpunkte ein-/ausklappen">▾</span>
                 </button>
-                <div class="nav-sub-group" id="nav-files-sub">
+                <div class="nav-sub-group hidden" id="nav-files-sub">
                     <button type="button" class="nav-item nav-sub-item" data-view="shared">
                         <span class="nav-icon">👥</span>
                         <span>Geteilt</span>
@@ -199,9 +199,9 @@ $bootData = [
                 <button type="button" class="nav-item" data-view="calendar">
                     <span class="nav-icon">📅</span>
                     <span style="flex:1">Kalender</span>
-                    <span class="nav-chevron" id="btn-toggle-calendar-sub" title="Unterpunkte ein-/ausklappen">▾</span>
+                    <span class="nav-chevron collapsed" id="btn-toggle-calendar-sub" title="Unterpunkte ein-/ausklappen">▾</span>
                 </button>
-                <div class="nav-sub-group" id="nav-calendar-sub">
+                <div class="nav-sub-group hidden" id="nav-calendar-sub">
                     <button type="button" class="nav-item nav-sub-item" data-view="calendar_week">
                         <span class="nav-icon">🏟️</span>
                         <span>Hallen- & Wochenplan</span>
@@ -215,9 +215,9 @@ $bootData = [
                     <button type="button" class="nav-item" id="nav-item-members" data-view="members">
                         <span class="nav-icon">🪪</span>
                         <span style="flex:1">Mitglieder</span>
-                        <span class="nav-chevron" id="btn-toggle-members-sub" title="Unterpunkte ein-/ausklappen">▾</span>
+                        <span class="nav-chevron collapsed" id="btn-toggle-members-sub" title="Unterpunkte ein-/ausklappen">▾</span>
                     </button>
-                    <div class="nav-sub-group" id="nav-members-sub">
+                    <div class="nav-sub-group hidden" id="nav-members-sub">
                         <button type="button" class="nav-item nav-sub-item" data-view="members_stats">
                             <span class="nav-icon">📊</span>
                             <span>Statistik</span>
