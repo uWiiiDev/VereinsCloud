@@ -210,9 +210,27 @@ class Database
 
             CREATE INDEX IF NOT EXISTS idx_group_shares_group ON group_shares(target_group_id);
             CREATE INDEX IF NOT EXISTS idx_group_shares_item ON group_shares(item_type, item_id);
+
+            CREATE TABLE IF NOT EXISTS calendar_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                creator_id INTEGER NOT NULL,
+                group_id INTEGER NULL,
+                title TEXT NOT NULL,
+                start_at TEXT NOT NULL,
+                end_at TEXT NULL,
+                all_day INTEGER NOT NULL DEFAULT 0,
+                location TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                color TEXT NOT NULL DEFAULT '#3b82f6',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_calendar_events_start ON calendar_events(start_at);
         ");
 
-        // Auto-migrate 2FA columns on existing users table
+        // Auto-migrate 2FA & delegated permission columns on existing users table
         $existingCols = [];
         foreach ($pdo->query("PRAGMA table_info(users)")->fetchAll() as $col) {
             $existingCols[$col['name']] = true;
@@ -226,6 +244,9 @@ class Database
             'email_code_hash'      => "TEXT NULL",
             'email_code_expires'   => "INTEGER NOT NULL DEFAULT 0",
             'webdav_token_hash'    => "TEXT NULL",
+            'perm_users'           => "INTEGER NOT NULL DEFAULT 0",
+            'perm_groups'          => "INTEGER NOT NULL DEFAULT 0",
+            'perm_group_folders'   => "INTEGER NOT NULL DEFAULT 0",
         ];
         foreach ($addCols as $cName => $cDef) {
             if (!isset($existingCols[$cName])) {

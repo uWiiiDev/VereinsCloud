@@ -174,6 +174,10 @@ $bootData = [
                     <span class="nav-icon">📁</span>
                     <span>Dateien</span>
                 </button>
+                <button type="button" class="nav-item" data-view="calendar">
+                    <span class="nav-icon">📅</span>
+                    <span>Kalender</span>
+                </button>
                 <button type="button" class="nav-item" data-view="shared">
                     <span class="nav-icon">👥</span>
                     <span>Geteilt</span>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/src/bootstrap.php';
 
 use Cloud\Auth;
+use Cloud\CalendarManager;
 use Cloud\CryptoVault;
 use Cloud\Database;
 use Cloud\FileManager;
@@ -615,21 +616,38 @@ try {
                 ->execute([':id' => $userId]);
             jsonResponse(['ok' => true, 'user' => Auth::currentUser()]);
 
+        case 'calendar_list':
+            $month = (string)($_GET['month'] ?? '');
+            $data  = CalendarManager::listEvents($userId, $user['role'] === 'admin', $month);
+            jsonResponse(['ok' => true] + $data);
+
+        case 'calendar_save':
+            $evId = isset($input['id']) && $input['id'] !== '' && $input['id'] !== null ? (int)$input['id'] : null;
+            $savedId = CalendarManager::saveEvent($userId, $user['role'] === 'admin', $evId, $input);
+            jsonResponse(['ok' => true, 'id' => $savedId]);
+
+        case 'calendar_delete':
+            CalendarManager::deleteEvent($userId, $user['role'] === 'admin', (int)($input['id'] ?? 0));
+            jsonResponse(['ok' => true]);
+
+        case 'calendar_ics':
+            CalendarManager::streamEventIcs($userId, $user['role'] === 'admin', (int)($_GET['id'] ?? 0));
+
         case 'admin_users':
-            if ($user['role'] !== 'admin') {
-                throw new RuntimeException('Nur für Administratoren.');
+            if (empty($user['has_admin_panel'])) {
+                throw new RuntimeException('Keine Administrationsberechtigung.');
             }
             jsonResponse([
                 'ok'            => true,
-                'users'         => UserManager::listUsers(),
-                'groups'        => UserManager::listGroups(),
-                'group_folders' => UserManager::listGroupFolders(),
+                'users'         => (!empty($user['perm_users']) || !empty($user['perm_groups'])) ? UserManager::listUsers() : [],
+                'groups'        => (!empty($user['perm_groups']) || !empty($user['perm_group_folders'])) ? UserManager::listGroups() : [],
+                'group_folders' => !empty($user['perm_group_folders']) ? UserManager::listGroupFolders() : [],
                 'settings'      => Database::getSettings(),
             ]);
 
         case 'admin_save_group_folder':
-            if ($user['role'] !== 'admin') {
-                throw new RuntimeException('Nur für Administratoren.');
+            if (empty($user['perm_group_folders'])) {
+                throw new RuntimeException('Keine Berechtigung zum Verwalten von Gruppenordnern.');
             }
             $fid = UserManager::saveGroupFolder(
                 $userId,
@@ -641,15 +659,15 @@ try {
             jsonResponse(['ok' => true, 'id' => $fid]);
 
         case 'admin_delete_group_folder':
-            if ($user['role'] !== 'admin') {
-                throw new RuntimeException('Nur für Administratoren.');
+            if (empty($user['perm_group_folders'])) {
+                throw new RuntimeException('Keine Berechtigung zum Verwalten von Gruppenordnern.');
             }
             UserManager::deleteGroupFolder((int)($input['id'] ?? 0));
             jsonResponse(['ok' => true]);
 
         case 'admin_save_group':
-            if ($user['role'] !== 'admin') {
-                throw new RuntimeException('Nur für Administratoren.');
+            if (empty($user['perm_groups'])) {
+                throw new RuntimeException('Keine Berechtigung zum Verwalten von Benutzergruppen.');
             }
             $gid = UserManager::saveGroup(
                 isset($input['id']) && $input['id'] !== '' ? (int)$input['id'] : null,
@@ -659,28 +677,32 @@ try {
             jsonResponse(['ok' => true, 'id' => $gid]);
 
         case 'admin_delete_group':
-            if ($user['role'] !== 'admin') {
-                throw new RuntimeException('Nur für Administratoren.');
+            if (empty($user['perm_groups'])) {
+                throw new RuntimeException('Keine Berechtigung zum Verwalten von Benutzergruppen.');
             }
             UserManager::deleteGroup((int)($input['id'] ?? 0));
             jsonResponse(['ok' => true]);
 
         case 'admin_create_user':
-            if ($user['role'] !== 'admin') {
-                throw new RuntimeException('Nur für Administratoren.');
+            if (empty($user['perm_users'])) {
+                throw new RuntimeException('Keine Berechtigung zum Verwalten von Benutzern.');
             }
             $id = UserManager::createUser(
                 (string)($input['username'] ?? ''),
                 (string)($input['display_name'] ?? ''),
                 (string)($input['password'] ?? ''),
                 (string)($input['role'] ?? 'user'),
-                (int)($input['quota_mb'] ?? 5120)
+                (int)($input['quota_mb'] ?? 5120),
+                $user['role'] === 'admin',
+                !empty($input['perm_users']),
+                !empty($input['perm_groups']),
+                !empty($input['perm_group_folders'])
             );
             jsonResponse(['ok' => true, 'id' => $id]);
 
         case 'admin_update_user':
-            if ($user['role'] !== 'admin') {
-                throw new RuntimeException('Nur für Administratoren.');
+            if (empty($user['perm_users'])) {
+                throw new RuntimeException('Keine Berechtigung zum Verwalten von Benutzern.');
             }
             UserManager::updateUser(
                 $userId,
@@ -689,20 +711,24 @@ try {
                 (string)($input['role'] ?? 'user'),
                 (int)($input['quota_mb'] ?? 5120),
                 !empty($input['is_active']),
-                isset($input['new_password']) ? (string)$input['new_password'] : null
+                isset($input['new_password']) ? (string)$input['new_password'] : null,
+                $user['role'] === 'admin',
+                isset($input['perm_users']) ? !empty($input['perm_users']) : null,
+                isset($input['perm_groups']) ? !empty($input['perm_groups']) : null,
+                isset($input['perm_group_folders']) ? !empty($input['perm_group_folders']) : null
             );
             jsonResponse(['ok' => true]);
 
         case 'admin_delete_user':
-            if ($user['role'] !== 'admin') {
-                throw new RuntimeException('Nur für Administratoren.');
+            if (empty($user['perm_users'])) {
+                throw new RuntimeException('Keine Berechtigung zum Verwalten von Benutzern.');
             }
-            UserManager::deleteUser($userId, (int)($input['id'] ?? 0));
+            UserManager::deleteUser($userId, (int)($input['id'] ?? 0), $user['role'] === 'admin');
             jsonResponse(['ok' => true]);
 
         case 'admin_save_settings':
             if ($user['role'] !== 'admin') {
-                throw new RuntimeException('Nur für Administratoren.');
+                throw new RuntimeException('Nur für Voll-Administratoren.');
             }
             if (isset($input['app_name']) && trim((string)$input['app_name']) !== '') {
                 Database::setSetting('app_name', trim((string)$input['app_name']));

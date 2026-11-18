@@ -32,6 +32,7 @@
         filterType: 'all',      // 'all' | 'folder' | 'doc' | 'image' | 'video' | 'audio' | 'zip' | 'encrypted' | 'shared'
         filterText: '',         // Substring filter on item name
         filterMenuOpen: false,
+        calendarMonth: new Date().toISOString().slice(0, 7),
     };
 
     // Apply saved theme immediately
@@ -763,6 +764,10 @@
 
         if (state.view === 'my_shares') {
             await loadMySharesView();
+            return;
+        }
+        if (state.view === 'calendar') {
+            await loadCalendarView();
             return;
         }
 
@@ -3084,6 +3089,319 @@
         }
     }
 
+    // Shared Club Calendar ("📅 Kalender") View
+    const MONTH_NAMES_DE = [
+        'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+        'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
+    ];
+
+    function shiftMonthYm(ym, delta) {
+        const [y, m] = ym.split('-').map(Number);
+        const d = new Date(y, m - 1 + delta, 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function formatDeDate(isoStr, allDay = false) {
+        if (!isoStr) return '';
+        const datePart = isoStr.slice(0, 10);
+        const [y, m, d] = datePart.split('-');
+        const base = `${d}.${m}.${y}`;
+        if (allDay || isoStr.length <= 10) return base;
+        const timePart = isoStr.slice(11, 16);
+        return timePart ? `${base}, ${timePart} Uhr` : base;
+    }
+
+    async function loadCalendarView() {
+        $('#folder-write-actions').classList.add('hidden');
+        $('#trash-toolbar').classList.add('hidden');
+        $('#breadcrumbs').innerHTML = `<span class="crumb active">📅 Gemeinsamer Vereinskalender</span>`;
+
+        try {
+            const res = await apiGet({ action: 'calendar_list', month: state.calendarMonth });
+            const ym = res.month || state.calendarMonth;
+            state.calendarMonth = ym;
+            const events = res.events || [];
+            const upcoming = res.upcoming || [];
+            const groups = res.groups || [];
+
+            const [year, month] = ym.split('-').map(Number);
+            const monthTitle = `${MONTH_NAMES_DE[month - 1] || ''} ${year}`;
+
+            // Build 6-week (42-day) Monday-first grid
+            const firstOfMonth = new Date(year, month - 1, 1);
+            const startDow = (firstOfMonth.getDay() + 6) % 7; // 0 = Monday .. 6 = Sunday
+            const gridStart = new Date(year, month - 1, 1 - startDow);
+            const todayIso = new Date().toISOString().slice(0, 10);
+
+            const eventsById = new Map(events.map((e) => [e.id, e]));
+            upcoming.forEach((e) => eventsById.set(e.id, e));
+
+            let cellsHtml = '';
+            for (let i = 0; i < 42; i++) {
+                const cellDate = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+                const cellY = cellDate.getFullYear();
+                const cellM = String(cellDate.getMonth() + 1).padStart(2, '0');
+                const cellD = String(cellDate.getDate()).padStart(2, '0');
+                const isoDate = `${cellY}-${cellM}-${cellD}`;
+                const isOtherMonth = cellDate.getMonth() !== (month - 1);
+                const isToday = isoDate === todayIso;
+
+                const dayEvents = events.filter((ev) => {
+                    const sDay = (ev.start_at || '').slice(0, 10);
+                    const eDay = ev.end_at ? ev.end_at.slice(0, 10) : sDay;
+                    return isoDate >= sDay && isoDate <= eDay;
+                });
+
+                const pills = dayEvents.map((ev) => {
+                    const timePrefix = !ev.all_day && (ev.start_at || '').slice(0, 10) === isoDate && ev.start_at.length >= 16
+                        ? `${ev.start_at.slice(11, 16)} `
+                        : '';
+                    const grpTag = ev.group_name ? ` [${ev.group_name}]` : '';
+                    return `
+                        <div class="cal-event-pill" style="background:${esc(ev.color)}" data-cal-ev="${ev.id}" title="${esc(ev.title + grpTag)}">
+                            ${esc(timePrefix + ev.title)}
+                        </div>
+                    `;
+                }).join('');
+
+                cellsHtml += `
+                    <div class="cal-day ${isOtherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''}" data-cal-date="${isoDate}">
+                        <span class="cal-day-num">${cellDate.getDate()}</span>
+                        ${pills}
+                    </div>
+                `;
+            }
+
+            const upcomingHtml = upcoming.map((ev) => `
+                <div class="cal-upcoming-item" data-cal-ev="${ev.id}">
+                    <span class="cal-color-dot" style="background:${esc(ev.color)}"></span>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-weight:600;font-size:0.88rem">${esc(ev.title)}</div>
+                        <div class="muted small">${esc(formatDeDate(ev.start_at, ev.all_day))}${ev.end_at ? ` – ${esc(formatDeDate(ev.end_at, ev.all_day))}` : ''}</div>
+                        ${ev.location ? `<div class="muted small">📍 ${esc(ev.location)}</div>` : ''}
+                        <div style="margin-top:0.2rem">
+                            <span class="badge">${ev.group_name ? `👪 ${esc(ev.group_name)}` : '🌐 Alle Mitglieder'}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            const container = $('#items-container');
+            container.innerHTML = `
+                <div class="cal-header-bar">
+                    <div class="cal-nav-group">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-cal-prev" title="Vorheriger Monat">◀</button>
+                        <div class="cal-month-title">${esc(monthTitle)}</div>
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-cal-next" title="Nächster Monat">▶</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-cal-today">Heute</button>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-cal-new">➕ Neuer Termin</button>
+                </div>
+
+                <div class="cal-layout">
+                    <div class="cal-board">
+                        <div class="cal-weekdays">
+                            <span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span>
+                        </div>
+                        <div class="cal-grid">${cellsHtml}</div>
+                    </div>
+
+                    <div class="cal-upcoming-box">
+                        <h4 style="margin:0 0 0.25rem">📌 Anstehende Termine</h4>
+                        ${upcomingHtml || '<p class="muted small" style="margin:0">Keine anstehenden Termine eingetragen.</p>'}
+                    </div>
+                </div>
+            `;
+
+            $('#btn-cal-prev', container)?.addEventListener('click', () => {
+                state.calendarMonth = shiftMonthYm(state.calendarMonth, -1);
+                loadCalendarView();
+            });
+            $('#btn-cal-next', container)?.addEventListener('click', () => {
+                state.calendarMonth = shiftMonthYm(state.calendarMonth, 1);
+                loadCalendarView();
+            });
+            $('#btn-cal-today', container)?.addEventListener('click', () => {
+                state.calendarMonth = new Date().toISOString().slice(0, 7);
+                loadCalendarView();
+            });
+            $('#btn-cal-new', container)?.addEventListener('click', () => {
+                openCalendarEventModal(null, new Date().toISOString().slice(0, 10), groups);
+            });
+
+            $$('[data-cal-ev]', container).forEach((el) => {
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const ev = eventsById.get(Number(el.dataset.calEv));
+                    if (ev) openCalendarDetailModal(ev, groups);
+                });
+            });
+
+            $$('.cal-day[data-cal-date]', container).forEach((dayEl) => {
+                dayEl.addEventListener('click', () => {
+                    openCalendarEventModal(null, dayEl.dataset.calDate, groups);
+                });
+            });
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    }
+
+    function openCalendarDetailModal(ev, groups) {
+        const icsUrl = `api.php?action=calendar_ics&id=${ev.id}`;
+        openModal(`📅 ${ev.title}`, `
+            <div style="display:flex;flex-direction:column;gap:0.75rem">
+                <div>
+                    <span class="badge" style="background:${esc(ev.color)};color:#fff;border:none">${ev.group_name ? `👪 Gruppe: ${esc(ev.group_name)}` : '🌐 Für alle Vereinsmitglieder'}</span>
+                    <span class="muted small" style="margin-left:0.4rem">Eingetragen von ${esc(ev.creator_name)}</span>
+                </div>
+                <div class="code-box">
+                    <strong>🕒 Zeitraum:</strong> ${esc(formatDeDate(ev.start_at, ev.all_day))}${ev.end_at ? ` bis ${esc(formatDeDate(ev.end_at, ev.all_day))}` : ''}${ev.all_day ? ' (Ganztägig)' : ''}
+                    ${ev.location ? `<br><strong>📍 Ort:</strong> ${esc(ev.location)}` : ''}
+                </div>
+                ${ev.description ? `<div style="white-space:pre-wrap;font-size:0.92rem;line-height:1.5;padding:0.5rem 0">${esc(ev.description)}</div>` : ''}
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.4rem">
+                    <a class="btn btn-ghost" href="${icsUrl}">📲 In Handy-/PC-Kalender (.ics)</a>
+                    <span style="flex:1"></span>
+                    ${ev.can_edit ? `
+                        <button type="button" class="btn btn-primary" id="btn-cal-edit">✏️ Bearbeiten</button>
+                        <button type="button" class="btn btn-danger" id="btn-cal-del">🗑️ Löschen</button>
+                    ` : ''}
+                </div>
+            </div>
+        `);
+
+        $('#btn-cal-edit')?.addEventListener('click', () => {
+            openCalendarEventModal(ev, null, groups);
+        });
+        $('#btn-cal-del')?.addEventListener('click', async () => {
+            if (!confirm('Diesen Termin wirklich löschen?')) return;
+            try {
+                await apiPost('calendar_delete', { id: ev.id });
+                closeModal();
+                toast('Termin gelöscht.');
+                loadCalendarView();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+    }
+
+    function openCalendarEventModal(ev, defaultDate, groups) {
+        const isEdit = !!ev;
+        const allDay = isEdit ? ev.all_day : false;
+        const baseDate = defaultDate || new Date().toISOString().slice(0, 10);
+        const initStart = isEdit
+            ? (ev.all_day ? ev.start_at.slice(0, 10) : ev.start_at.replace(' ', 'T').slice(0, 16))
+            : `${baseDate}T19:00`;
+        const initEnd = isEdit && ev.end_at
+            ? (ev.all_day ? ev.end_at.slice(0, 10) : ev.end_at.replace(' ', 'T').slice(0, 16))
+            : '';
+
+        const groupOpts = [
+            `<option value="">🌐 Alle Vereinsmitglieder</option>`,
+            ...(groups || []).map((g) => `<option value="${g.id}" ${isEdit && ev.group_id === g.id ? 'selected' : ''}>👪 Nur Gruppe: ${esc(g.name)}</option>`),
+        ].join('');
+
+        const colors = [
+            { hex: '#3b82f6', label: '🔵 Verein / Allgemein' },
+            { hex: '#10b981', label: '🟢 Veranstaltung / Fest' },
+            { hex: '#8b5cf6', label: '🟣 Sitzung / Vorstand' },
+            { hex: '#f59e0b', label: '🟠 Arbeitseinsatz / Technik' },
+            { hex: '#ef4444', label: '🔴 Wichtig / Frist' },
+        ];
+        const colorOpts = colors.map((c) => `<option value="${c.hex}" ${isEdit && ev.color === c.hex ? 'selected' : ''}>${c.label}</option>`).join('');
+
+        openModal(isEdit ? `✏️ Termin bearbeiten` : `➕ Neuer Vereinstermin`, `
+            <form id="cal-event-form">
+                <div class="form-group">
+                    <label>Titel des Termins</label>
+                    <input type="text" name="title" class="input" value="${esc(isEdit ? ev.title : '')}" placeholder="z. B. Vorstandssitzung, Vereinsfest, Arbeitseinsatz…" required>
+                </div>
+                <div class="form-group">
+                    <label style="display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer">
+                        <input type="checkbox" name="all_day" id="cal-allday-chk" value="1" ${allDay ? 'checked' : ''}>
+                        <span>Ganztägiger Termin</span>
+                    </label>
+                </div>
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:1">
+                        <label class="small muted">Beginn</label>
+                        <input type="${allDay ? 'date' : 'datetime-local'}" name="start_at" id="cal-start-inp" class="input" value="${esc(initStart)}" required>
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Ende (optional)</label>
+                        <input type="${allDay ? 'date' : 'datetime-local'}" name="end_at" id="cal-end-inp" class="input" value="${esc(initEnd)}">
+                    </div>
+                </div>
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:1">
+                        <label class="small muted">Sichtbarkeit</label>
+                        <select name="group_id" class="input">${groupOpts}</select>
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Kategorie / Farbe</label>
+                        <select name="color" class="input">${colorOpts}</select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="small muted">Ort (optional)</label>
+                    <input type="text" name="location" class="input" value="${esc(isEdit ? ev.location : '')}" placeholder="z. B. Vereinsheim, Sporthalle, Online…">
+                </div>
+                <div class="form-group">
+                    <label class="small muted">Beschreibung / Notizen (optional)</label>
+                    <textarea name="description" class="input" rows="3" placeholder="Tagesordnung, Hinweise…">${esc(isEdit ? ev.description : '')}</textarea>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">💾 Termin speichern</button>
+            </form>
+        `);
+
+        const body = $('#modal-body');
+        $('#cal-allday-chk', body)?.addEventListener('change', (e) => {
+            const isAd = e.target.checked;
+            const sInp = $('#cal-start-inp', body);
+            const eInp = $('#cal-end-inp', body);
+            if (isAd) {
+                const sv = sInp.value.slice(0, 10) || baseDate;
+                const evVal = eInp.value ? eInp.value.slice(0, 10) : '';
+                sInp.type = 'date';
+                eInp.type = 'date';
+                sInp.value = sv;
+                eInp.value = evVal;
+            } else {
+                const sv = sInp.value.slice(0, 10) || baseDate;
+                const evVal = eInp.value ? eInp.value.slice(0, 10) : '';
+                sInp.type = 'datetime-local';
+                eInp.type = 'datetime-local';
+                sInp.value = `${sv}T19:00`;
+                eInp.value = evVal ? `${evVal}T21:00` : '';
+            }
+        });
+
+        $('#cal-event-form', body)?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            try {
+                await apiPost('calendar_save', {
+                    id: isEdit ? ev.id : null,
+                    title: fd.get('title'),
+                    all_day: fd.get('all_day') === '1',
+                    start_at: fd.get('start_at'),
+                    end_at: fd.get('end_at') || '',
+                    group_id: fd.get('group_id') || null,
+                    color: fd.get('color'),
+                    location: fd.get('location') || '',
+                    description: fd.get('description') || '',
+                });
+                closeModal();
+                toast(isEdit ? 'Termin aktualisiert.' : 'Termin eingetragen.');
+                loadCalendarView();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+    }
+
     // "➕ Neu" Dropdown Menu & Upload Triggers
     $('#btn-new-menu-toggle')?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -3413,7 +3731,7 @@
             const isInstalled = isRunningAsPwa();
             const hasDavToken = !!(state.user?.has_webdav_token || generatedDavToken);
             const has2fa = !!(sec.totp_enabled || sec.email_2fa_enabled || sec.passkey_2fa_enabled);
-            const isAdmin = state.user.role === 'admin';
+            const isAdmin = !!(state.user.role === 'admin' || state.user.has_admin_panel);
 
             openModal('👤 Einstellungen', `
                 <div class="tabs">
@@ -3879,8 +4197,7 @@
     // Admin User & Quota Management Modal
     $('#btn-admin-modal')?.addEventListener('click', () => openAdminModal('adm-users'));
 
-    async function openAdminModal(initialTab = 'adm-users') {
-        const activeTab = typeof initialTab === 'string' ? initialTab : 'adm-users';
+    async function openAdminModal(initialTab = '') {
         try {
             const res = await apiGet({ action: 'admin_users' });
             const users = res.users || [];
@@ -3888,8 +4205,31 @@
             const groupFolders = res.group_folders || [];
             const settings = res.settings || {};
 
+            const isFullAdmin = state.user?.role === 'admin';
+            const canUsers = isFullAdmin || !!state.user?.perm_users;
+            const canGroups = isFullAdmin || !!state.user?.perm_groups;
+            const canGroupFolders = isFullAdmin || !!state.user?.perm_group_folders;
+
+            const availableTabs = [];
+            if (canUsers) availableTabs.push('adm-users');
+            if (canGroups) availableTabs.push('adm-groups');
+            if (canGroupFolders) availableTabs.push('adm-group-folders');
+            if (isFullAdmin) availableTabs.push('adm-settings');
+
+            const activeTab = (typeof initialTab === 'string' && availableTabs.includes(initialTab))
+                ? initialTab
+                : (availableTabs[0] || 'adm-users');
+
             const rows = users.map((u) => {
                 const quotaMb = u.quota_bytes > 0 ? Math.round(u.quota_bytes / 1048576) : 0;
+                const delBadges = [];
+                if (u.role !== 'admin') {
+                    if (u.perm_users) delBadges.push('👥');
+                    if (u.perm_groups) delBadges.push('👪');
+                    if (u.perm_group_folders) delBadges.push('📂');
+                }
+                const permHint = delBadges.length > 0 ? ` <span class="badge" title="Delegierte Admin-Rechte">⚙️ ${delBadges.join('')}</span>` : '';
+                const canModifyRow = isFullAdmin || u.role !== 'admin';
                 return `
                     <tr>
                         <td>
@@ -3897,14 +4237,14 @@
                             <div class="muted small">@${esc(u.username)} · ${u.file_count} Dateien</div>
                         </td>
                         <td>
-                            <span class="badge">${u.role === 'admin' ? '👑 Admin' : '👤 User'}</span>
+                            <span class="badge">${u.role === 'admin' ? '👑 Admin' : '👤 User'}</span>${permHint}
                         </td>
                         <td class="small">
                             ${formatBytes(u.used_bytes)} / ${u.quota_bytes > 0 ? formatBytes(u.quota_bytes) : '∞'}
                         </td>
                         <td style="text-align:right">
-                            <button type="button" class="btn btn-ghost btn-sm" data-edit-user='${esc(JSON.stringify({ ...u, quota_mb: quotaMb }))}'>✏️ Bearbeiten</button>
-                            ${u.id !== state.user.id ? `<button type="button" class="btn btn-danger btn-sm" data-del-user="${u.id}">🗑️</button>` : ''}
+                            ${canModifyRow ? `<button type="button" class="btn btn-ghost btn-sm" data-edit-user='${esc(JSON.stringify({ ...u, quota_mb: quotaMb }))}'>✏️ Bearbeiten</button>` : ''}
+                            ${canModifyRow && u.id !== state.user.id ? `<button type="button" class="btn btn-danger btn-sm" data-del-user="${u.id}">🗑️</button>` : ''}
                         </td>
                     </tr>
                 `;
@@ -3958,10 +4298,10 @@
 
             openModal('⚙️ Administration', `
                 <div class="tabs">
-                    <button type="button" class="tab-btn ${activeTab === 'adm-users' ? 'active' : ''}" data-adm-tab="adm-users">👥 Benutzer (${users.length})</button>
-                    <button type="button" class="tab-btn ${activeTab === 'adm-groups' ? 'active' : ''}" data-adm-tab="adm-groups">👪 Gruppen (${groups.length})</button>
-                    <button type="button" class="tab-btn ${activeTab === 'adm-group-folders' ? 'active' : ''}" data-adm-tab="adm-group-folders">📂 Gruppenordner (${groupFolders.length})</button>
-                    <button type="button" class="tab-btn ${activeTab === 'adm-settings' ? 'active' : ''}" data-adm-tab="adm-settings">🛠️ System</button>
+                    ${canUsers ? `<button type="button" class="tab-btn ${activeTab === 'adm-users' ? 'active' : ''}" data-adm-tab="adm-users">👥 Benutzer (${users.length})</button>` : ''}
+                    ${canGroups ? `<button type="button" class="tab-btn ${activeTab === 'adm-groups' ? 'active' : ''}" data-adm-tab="adm-groups">👪 Gruppen (${groups.length})</button>` : ''}
+                    ${canGroupFolders ? `<button type="button" class="tab-btn ${activeTab === 'adm-group-folders' ? 'active' : ''}" data-adm-tab="adm-group-folders">📂 Gruppenordner (${groupFolders.length})</button>` : ''}
+                    ${isFullAdmin ? `<button type="button" class="tab-btn ${activeTab === 'adm-settings' ? 'active' : ''}" data-adm-tab="adm-settings">🛠️ System</button>` : ''}
                 </div>
 
                 <div id="adm-users" class="${activeTab === 'adm-users' ? '' : 'hidden'}">
@@ -3989,18 +4329,28 @@
                                 <label class="small muted">Passwort (mind. 6 Zeichen)</label>
                                 <input type="password" name="password" class="input" required minlength="6">
                             </div>
+                            ${isFullAdmin ? `
                             <div style="width:140px">
                                 <label class="small muted">Rolle</label>
                                 <select name="role" class="input">
                                     <option value="user">Benutzer</option>
                                     <option value="admin">Administrator</option>
                                 </select>
-                            </div>
+                            </div>` : ''}
                             <div style="width:160px">
                                 <label class="small muted">Quota in MB (0 = ∞)</label>
                                 <input type="number" name="quota_mb" class="input" value="5120" min="0">
                             </div>
                         </div>
+                        ${isFullAdmin ? `
+                        <div style="margin-bottom:0.75rem">
+                            <label class="small muted" style="display:block;margin-bottom:0.3rem">Optionale Teil-Administrationsrechte (für normale Benutzer):</label>
+                            <div style="display:flex;gap:0.75rem;flex-wrap:wrap;font-size:0.85rem">
+                                <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_users" value="1"> 👥 Benutzer verwalten</label>
+                                <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_groups" value="1"> 👪 Gruppen verwalten</label>
+                                <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_group_folders" value="1"> 📂 Gruppenordner verwalten</label>
+                            </div>
+                        </div>` : ''}
                         <button type="submit" class="btn btn-primary btn-block">➕ Benutzer anlegen</button>
                     </form>
                 </div>
@@ -4285,6 +4635,7 @@
     }
 
     function openEditUserModal(u) {
+        const isFullAdmin = state.user?.role === 'admin';
         openModal(`Benutzer bearbeiten: @${u.username}`, `
             <form id="edit-user-form">
                 <div class="form-group">
@@ -4292,18 +4643,37 @@
                     <input type="text" name="display_name" class="input" value="${esc(u.display_name)}" required>
                 </div>
                 <div class="form-row" style="margin-bottom:0.75rem">
+                    ${isFullAdmin ? `
                     <div style="flex:1">
                         <label class="small muted">Rolle</label>
                         <select name="role" class="input" ${u.id === state.user.id ? 'disabled' : ''}>
                             <option value="user" ${u.role === 'user' ? 'selected' : ''}>Benutzer</option>
                             <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Administrator</option>
                         </select>
-                    </div>
+                    </div>` : ''}
                     <div style="flex:1">
                         <label class="small muted">Speicher-Quota in MB (0 = ∞)</label>
                         <input type="number" name="quota_mb" class="input" value="${u.quota_mb}" min="0" required>
                     </div>
                 </div>
+                ${isFullAdmin && u.id !== state.user.id ? `
+                <div class="form-group" style="border:1px solid var(--border);border-radius:8px;padding:0.65rem;background:var(--bg)">
+                    <label class="small muted" style="display:block;margin-bottom:0.35rem">Delegierte Teil-Administrationsrechte (für normale Benutzer):</label>
+                    <div style="display:flex;flex-direction:column;gap:0.35rem;font-size:0.86rem">
+                        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">
+                            <input type="checkbox" name="perm_users" value="1" ${u.perm_users ? 'checked' : ''}>
+                            <span>👥 Benutzer verwalten (Anlegen, Passwort & Quota)</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">
+                            <input type="checkbox" name="perm_groups" value="1" ${u.perm_groups ? 'checked' : ''}>
+                            <span>👪 Gruppen verwalten (Gruppen & Mitglieder zuordnen)</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">
+                            <input type="checkbox" name="perm_group_folders" value="1" ${u.perm_group_folders ? 'checked' : ''}>
+                            <span>📂 Gruppenordner verwalten (Gruppenordner anlegen & zuweisen)</span>
+                        </label>
+                    </div>
+                </div>` : ''}
                 <div class="form-group">
                     <label>Neues Passwort setzen (leer lassen für unverändert)</label>
                     <input type="password" name="new_password" class="input" placeholder="Unverändert">
@@ -4332,6 +4702,9 @@
                     quota_mb: Number(fd.get('quota_mb')),
                     is_active: u.id === state.user.id ? true : fd.get('is_active') === '1',
                     new_password: fd.get('new_password') || '',
+                    perm_users: fd.get('perm_users') === '1',
+                    perm_groups: fd.get('perm_groups') === '1',
+                    perm_group_folders: fd.get('perm_group_folders') === '1',
                 });
                 toast('Benutzer aktualisiert.');
                 openAdminModal();
