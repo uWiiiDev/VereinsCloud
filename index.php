@@ -8,6 +8,7 @@ use Cloud\Database;
 
 Auth::startSession();
 Auth::sendSecurityHeaders();
+header('Cache-Control: no-store, no-cache, must-revalidate');
 
 $settings   = Database::getSettings();
 $hasAnyUser = Database::hasAnyUser();

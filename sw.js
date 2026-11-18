@@ -1,6 +1,5 @@
-const CACHE_NAME = 'purecloud-shell-v1';
+const CACHE_NAME = 'vereinscloud-shell-v3';
 const SHELL_ASSETS = [
-    './',
     'assets/css/app.css',
     'assets/js/app.js',
 ];
@@ -20,18 +19,18 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-// Network-first for shell assets, bypass cache for API/Auth/Downloads
+// Network-first for static assets; never cache HTML/PHP endpoints
 self.addEventListener('fetch', (event) => {
     const req = event.request;
-    if (req.method !== 'GET') return;
+    if (req.method !== 'GET' || req.mode === 'navigate') return;
     const url = new URL(req.url);
-    if (url.pathname.endsWith('api.php') || url.pathname.endsWith('share.php') || url.pathname.endsWith('webdav.php')) {
+    if (!url.pathname.endsWith('.css') && !url.pathname.endsWith('.js')) {
         return;
     }
     event.respondWith(
-        fetch(req)
+        fetch(req, { cache: 'no-cache' })
             .then((res) => {
-                if (res && res.status === 200 && (url.pathname.endsWith('.css') || url.pathname.endsWith('.js'))) {
+                if (res && res.status === 200) {
                     const clone = res.clone();
                     caches.open(CACHE_NAME).then((c) => c.put(req, clone)).catch(() => {});
                 }
