@@ -219,6 +219,8 @@ class Database
                 start_at TEXT NOT NULL,
                 end_at TEXT NULL,
                 all_day INTEGER NOT NULL DEFAULT 0,
+                recurrence TEXT NOT NULL DEFAULT 'none',
+                recurrence_until TEXT NULL,
                 location TEXT NOT NULL DEFAULT '',
                 description TEXT NOT NULL DEFAULT '',
                 color TEXT NOT NULL DEFAULT '#3b82f6',
@@ -262,6 +264,18 @@ class Database
         }
         if (!isset($folderCols['is_group_folder'])) {
             $pdo->exec("ALTER TABLE folders ADD COLUMN is_group_folder INTEGER NOT NULL DEFAULT 0");
+        }
+
+        // Auto-migrate recurrence columns on calendar_events table
+        $calCols = [];
+        foreach ($pdo->query("PRAGMA table_info(calendar_events)")->fetchAll() as $col) {
+            $calCols[$col['name']] = true;
+        }
+        if (!isset($calCols['recurrence'])) {
+            $pdo->exec("ALTER TABLE calendar_events ADD COLUMN recurrence TEXT NOT NULL DEFAULT 'none'");
+        }
+        if (!isset($calCols['recurrence_until'])) {
+            $pdo->exec("ALTER TABLE calendar_events ADD COLUMN recurrence_until TEXT NULL");
         }
 
         if ($isNew) {

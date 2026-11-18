@@ -33,6 +33,7 @@
         filterText: '',         // Substring filter on item name
         filterMenuOpen: false,
         calendarMonth: new Date().toISOString().slice(0, 7),
+        calendarColorFilter: 'all',
     };
 
     // Apply saved theme immediately
@@ -3112,6 +3113,31 @@
         return timePart ? `${base}, ${timePart} Uhr` : base;
     }
 
+    const CAL_CATEGORIES = [
+        { hex: '#3b82f6', label: '🔵 Verein / Allgemein' },
+        { hex: '#06b6d4', label: '🏟️ Hallenbelegung' },
+        { hex: '#10b981', label: '🟢 Veranstaltung / Fest' },
+        { hex: '#8b5cf6', label: '🟣 Sitzung / Vorstand' },
+        { hex: '#f59e0b', label: '🟠 Arbeitseinsatz / Technik' },
+        { hex: '#ef4444', label: '🔴 Wichtig / Frist' },
+    ];
+
+    function calCategoryLabel(hex) {
+        return CAL_CATEGORIES.find((c) => c.hex === hex)?.label || '🔵 Verein / Allgemein';
+    }
+
+    function calRecurrenceLabel(rec, until) {
+        const map = {
+            weekly: '🔄 Wöchentlich',
+            biweekly: '🔄 Alle 2 Wochen (14-tägig)',
+            monthly: '🔄 Monatlich',
+            yearly: '🔄 Jährlich',
+        };
+        const base = map[rec] || '';
+        if (!base) return '';
+        return until ? `${base} (bis ${formatDeDate(until, true)})` : base;
+    }
+
     async function loadCalendarView() {
         $('#folder-write-actions').classList.add('hidden');
         $('#trash-toolbar').classList.add('hidden');
@@ -3121,10 +3147,15 @@
             const res = await apiGet({ action: 'calendar_list', month: state.calendarMonth });
             const ym = res.month || state.calendarMonth;
             state.calendarMonth = ym;
-            const events = res.events || [];
-            const upcoming = res.upcoming || [];
+            const rawEvents = res.events || [];
+            const rawUpcoming = res.upcoming || [];
             const groups = res.groups || [];
             const canManageCal = !!res.can_manage;
+
+            const activeColor = state.calendarColorFilter || 'all';
+            const matchCat = (ev) => activeColor === 'all' || ev.color === activeColor;
+            const events = rawEvents.filter(matchCat);
+            const upcoming = rawUpcoming.filter(matchCat);
 
             const [year, month] = ym.split('-').map(Number);
             const monthTitle = `${MONTH_NAMES_DE[month - 1] || ''} ${year}`;
@@ -3135,8 +3166,9 @@
             const gridStart = new Date(year, month - 1, 1 - startDow);
             const todayIso = new Date().toISOString().slice(0, 10);
 
-            const eventsById = new Map(events.map((e) => [e.id, e]));
-            upcoming.forEach((e) => eventsById.set(e.id, e));
+            const eventsByKey = new Map();
+            events.forEach((e, idx) => eventsByKey.set(`${e.id}_${e.start_at}_${idx}`, e));
+            upcoming.forEach((e, idx) => eventsByKey.set(`up_${e.id}_${e.start_at}_${idx}`, e));
 
             let cellsHtml = '';
             for (let i = 0; i < 42; i++) {
@@ -3155,13 +3187,16 @@
                 });
 
                 const pills = dayEvents.map((ev) => {
+                    const evKey = `${ev.id}_${ev.start_at}`;
+                    eventsByKey.set(evKey, ev);
                     const timePrefix = !ev.all_day && (ev.start_at || '').slice(0, 10) === isoDate && ev.start_at.length >= 16
                         ? `${ev.start_at.slice(11, 16)} `
                         : '';
+                    const recIcon = ev.recurrence && ev.recurrence !== 'none' ? '🔄 ' : '';
                     const grpTag = ev.group_name ? ` [${ev.group_name}]` : '';
                     return `
-                        <div class="cal-event-pill" style="background:${esc(ev.color)}" data-cal-ev="${ev.id}" title="${esc(ev.title + grpTag)}">
-                            ${esc(timePrefix + ev.title)}
+                        <div class="cal-event-pill" style="background:${esc(ev.color)}" data-cal-ev="${esc(evKey)}" title="${esc(ev.title + grpTag)}">
+                            ${esc(recIcon + timePrefix + ev.title)}
                         </div>
                     `;
                 }).join('');
@@ -3174,19 +3209,31 @@
                 `;
             }
 
-            const upcomingHtml = upcoming.map((ev) => `
-                <div class="cal-upcoming-item" data-cal-ev="${ev.id}">
-                    <span class="cal-color-dot" style="background:${esc(ev.color)}"></span>
-                    <div style="flex:1;min-width:0">
-                        <div style="font-weight:600;font-size:0.88rem">${esc(ev.title)}</div>
-                        <div class="muted small">${esc(formatDeDate(ev.start_at, ev.all_day))}${ev.end_at ? ` – ${esc(formatDeDate(ev.end_at, ev.all_day))}` : ''}</div>
-                        ${ev.location ? `<div class="muted small">📍 ${esc(ev.location)}</div>` : ''}
-                        <div style="margin-top:0.2rem">
-                            <span class="badge">${ev.group_name ? `👪 ${esc(ev.group_name)}` : '🌐 Alle Mitglieder'}</span>
+            const upcomingHtml = upcoming.map((ev) => {
+                const evKey = `${ev.id}_${ev.start_at}`;
+                eventsByKey.set(evKey, ev);
+                const recText = calRecurrenceLabel(ev.recurrence, ev.recurrence_until);
+                return `
+                    <div class="cal-upcoming-item" data-cal-ev="${esc(evKey)}">
+                        <span class="cal-color-dot" style="background:${esc(ev.color)}"></span>
+                        <div style="flex:1;min-width:0">
+                            <div style="font-weight:600;font-size:0.88rem">${esc(ev.title)}</div>
+                            <div class="muted small">${esc(formatDeDate(ev.start_at, ev.all_day))}${ev.end_at ? ` – ${esc(formatDeDate(ev.end_at, ev.all_day))}` : ''}</div>
+                            ${recText ? `<div class="muted small">${esc(recText)}</div>` : ''}
+                            ${ev.location ? `<div class="muted small">📍 ${esc(ev.location)}</div>` : ''}
+                            <div style="margin-top:0.25rem;display:flex;gap:0.3rem;flex-wrap:wrap">
+                                <span class="badge">${esc(calCategoryLabel(ev.color))}</span>
+                                <span class="badge">${ev.group_name ? `👪 ${esc(ev.group_name)}` : '🌐 Alle Mitglieder'}</span>
+                            </div>
                         </div>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
+
+            const filterCatOpts = [
+                `<option value="all" ${activeColor === 'all' ? 'selected' : ''}>✦ Alle Kategorien</option>`,
+                ...CAL_CATEGORIES.map((c) => `<option value="${c.hex}" ${activeColor === c.hex ? 'selected' : ''}>${c.label}</option>`),
+            ].join('');
 
             const container = $('#items-container');
             container.innerHTML = `
@@ -3197,7 +3244,10 @@
                         <button type="button" class="btn btn-ghost btn-sm" id="btn-cal-next" title="Nächster Monat">▶</button>
                         <button type="button" class="btn btn-ghost btn-sm" id="btn-cal-today">Heute</button>
                     </div>
-                    ${canManageCal ? `<button type="button" class="btn btn-primary btn-sm" id="btn-cal-new">➕ Neuer Termin</button>` : ''}
+                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+                        <select id="cal-cat-filter" class="input small" style="width:auto;padding:0.35rem 0.65rem">${filterCatOpts}</select>
+                        ${canManageCal ? `<button type="button" class="btn btn-primary btn-sm" id="btn-cal-new">➕ Neuer Termin</button>` : ''}
+                    </div>
                 </div>
 
                 <div class="cal-layout">
@@ -3210,7 +3260,7 @@
 
                     <div class="cal-upcoming-box">
                         <h4 style="margin:0 0 0.25rem">📌 Anstehende Termine</h4>
-                        ${upcomingHtml || '<p class="muted small" style="margin:0">Keine anstehenden Termine eingetragen.</p>'}
+                        ${upcomingHtml || '<p class="muted small" style="margin:0">Keine anstehenden Termine in dieser Ansicht.</p>'}
                     </div>
                 </div>
             `;
@@ -3227,6 +3277,10 @@
                 state.calendarMonth = new Date().toISOString().slice(0, 7);
                 loadCalendarView();
             });
+            $('#cal-cat-filter', container)?.addEventListener('change', (e) => {
+                state.calendarColorFilter = e.target.value;
+                loadCalendarView();
+            });
             $('#btn-cal-new', container)?.addEventListener('click', () => {
                 openCalendarEventModal(null, new Date().toISOString().slice(0, 10), groups);
             });
@@ -3234,7 +3288,7 @@
             $$('[data-cal-ev]', container).forEach((el) => {
                 el.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    const ev = eventsById.get(Number(el.dataset.calEv));
+                    const ev = eventsByKey.get(el.dataset.calEv);
                     if (ev) openCalendarDetailModal(ev, groups);
                 });
             });
@@ -3253,15 +3307,18 @@
 
     function openCalendarDetailModal(ev, groups) {
         const icsUrl = `api.php?action=calendar_ics&id=${ev.id}`;
+        const recText = calRecurrenceLabel(ev.recurrence, ev.recurrence_until);
         openModal(`📅 ${ev.title}`, `
             <div style="display:flex;flex-direction:column;gap:0.75rem">
-                <div>
-                    <span class="badge" style="background:${esc(ev.color)};color:#fff;border:none">${ev.group_name ? `👪 Gruppe: ${esc(ev.group_name)}` : '🌐 Für alle Vereinsmitglieder'}</span>
-                    <span class="muted small" style="margin-left:0.4rem">Eingetragen von ${esc(ev.creator_name)}</span>
+                <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center">
+                    <span class="badge" style="background:${esc(ev.color)};color:#fff;border:none">${esc(calCategoryLabel(ev.color))}</span>
+                    <span class="badge">${ev.group_name ? `👪 Gruppe: ${esc(ev.group_name)}` : '🌐 Für alle Vereinsmitglieder'}</span>
+                    <span class="muted small">von ${esc(ev.creator_name)}</span>
                 </div>
                 <div class="code-box">
                     <strong>🕒 Zeitraum:</strong> ${esc(formatDeDate(ev.start_at, ev.all_day))}${ev.end_at ? ` bis ${esc(formatDeDate(ev.end_at, ev.all_day))}` : ''}${ev.all_day ? ' (Ganztägig)' : ''}
-                    ${ev.location ? `<br><strong>📍 Ort:</strong> ${esc(ev.location)}` : ''}
+                    ${recText ? `<br><strong>🔄 Wiederholung:</strong> ${esc(recText)}` : ''}
+                    ${ev.location ? `<br><strong>📍 Ort / Halle:</strong> ${esc(ev.location)}` : ''}
                 </div>
                 ${ev.description ? `<div style="white-space:pre-wrap;font-size:0.92rem;line-height:1.5;padding:0.5rem 0">${esc(ev.description)}</div>` : ''}
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.4rem">
@@ -3279,7 +3336,10 @@
             openCalendarEventModal(ev, null, groups);
         });
         $('#btn-cal-del')?.addEventListener('click', async () => {
-            if (!confirm('Diesen Termin wirklich löschen?')) return;
+            const msg = ev.recurrence && ev.recurrence !== 'none'
+                ? 'Diesen regelmäßigen Serientermin wirklich löschen?'
+                : 'Diesen Termin wirklich löschen?';
+            if (!confirm(msg)) return;
             try {
                 await apiPost('calendar_delete', { id: ev.id });
                 closeModal();
@@ -3295,32 +3355,41 @@
         const isEdit = !!ev;
         const allDay = isEdit ? ev.all_day : false;
         const baseDate = defaultDate || new Date().toISOString().slice(0, 10);
+        const rawStart = isEdit ? (ev.base_start_at || ev.start_at) : `${baseDate}T19:00`;
+        const rawEnd = isEdit ? (ev.base_end_at || ev.end_at || '') : '';
         const initStart = isEdit
-            ? (ev.all_day ? ev.start_at.slice(0, 10) : ev.start_at.replace(' ', 'T').slice(0, 16))
+            ? (ev.all_day ? rawStart.slice(0, 10) : rawStart.replace(' ', 'T').slice(0, 16))
             : `${baseDate}T19:00`;
-        const initEnd = isEdit && ev.end_at
-            ? (ev.all_day ? ev.end_at.slice(0, 10) : ev.end_at.replace(' ', 'T').slice(0, 16))
+        const initEnd = isEdit && rawEnd
+            ? (ev.all_day ? rawEnd.slice(0, 10) : rawEnd.replace(' ', 'T').slice(0, 16))
             : '';
+
+        const initRec = isEdit ? (ev.recurrence || 'none') : 'none';
+        const initRecUntil = isEdit && ev.recurrence_until ? ev.recurrence_until.slice(0, 10) : '';
 
         const groupOpts = [
             `<option value="">🌐 Alle Vereinsmitglieder</option>`,
             ...(groups || []).map((g) => `<option value="${g.id}" ${isEdit && ev.group_id === g.id ? 'selected' : ''}>👪 Nur Gruppe: ${esc(g.name)}</option>`),
         ].join('');
 
-        const colors = [
-            { hex: '#3b82f6', label: '🔵 Verein / Allgemein' },
-            { hex: '#10b981', label: '🟢 Veranstaltung / Fest' },
-            { hex: '#8b5cf6', label: '🟣 Sitzung / Vorstand' },
-            { hex: '#f59e0b', label: '🟠 Arbeitseinsatz / Technik' },
-            { hex: '#ef4444', label: '🔴 Wichtig / Frist' },
-        ];
-        const colorOpts = colors.map((c) => `<option value="${c.hex}" ${isEdit && ev.color === c.hex ? 'selected' : ''}>${c.label}</option>`).join('');
+        const defaultColor = isEdit ? ev.color : (state.calendarColorFilter !== 'all' ? state.calendarColorFilter : '#3b82f6');
+        const colorOpts = CAL_CATEGORIES.map((c) => `<option value="${c.hex}" ${defaultColor === c.hex ? 'selected' : ''}>${c.label}</option>`).join('');
 
         openModal(isEdit ? `✏️ Termin bearbeiten` : `➕ Neuer Vereinstermin`, `
             <form id="cal-event-form">
                 <div class="form-group">
-                    <label>Titel des Termins</label>
-                    <input type="text" name="title" class="input" value="${esc(isEdit ? ev.title : '')}" placeholder="z. B. Vorstandssitzung, Vereinsfest, Arbeitseinsatz…" required>
+                    <label>Titel des Termins / der Belegung</label>
+                    <input type="text" name="title" class="input" value="${esc(isEdit ? ev.title : '')}" placeholder="z. B. Hallentraining Jugend, Vorstandssitzung, Vereinsfest…" required>
+                </div>
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:1">
+                        <label class="small muted">Kategorie</label>
+                        <select name="color" class="input">${colorOpts}</select>
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Sichtbarkeit</label>
+                        <select name="group_id" class="input">${groupOpts}</select>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label style="display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer">
@@ -3340,27 +3409,37 @@
                 </div>
                 <div class="form-row" style="margin-bottom:0.75rem">
                     <div style="flex:1">
-                        <label class="small muted">Sichtbarkeit</label>
-                        <select name="group_id" class="input">${groupOpts}</select>
+                        <label class="small muted">🔄 Regelmäßige Wiederholung</label>
+                        <select name="recurrence" id="cal-rec-sel" class="input">
+                            <option value="none" ${initRec === 'none' ? 'selected' : ''}>Einmaliger Termin</option>
+                            <option value="weekly" ${initRec === 'weekly' ? 'selected' : ''}>🔄 Wöchentlich (jede Woche)</option>
+                            <option value="biweekly" ${initRec === 'biweekly' ? 'selected' : ''}>🔄 Alle 2 Wochen (14-tägig)</option>
+                            <option value="monthly" ${initRec === 'monthly' ? 'selected' : ''}>🔄 Monatlich</option>
+                            <option value="yearly" ${initRec === 'yearly' ? 'selected' : ''}>🔄 Jährlich</option>
+                        </select>
                     </div>
-                    <div style="flex:1">
-                        <label class="small muted">Kategorie / Farbe</label>
-                        <select name="color" class="input">${colorOpts}</select>
+                    <div style="flex:1" id="cal-rec-until-wrap" class="${initRec === 'none' ? 'hidden' : ''}">
+                        <label class="small muted">Wiederholen bis (leer = unbegrenzt)</label>
+                        <input type="date" name="recurrence_until" id="cal-rec-until-inp" class="input" value="${esc(initRecUntil)}">
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="small muted">Ort (optional)</label>
-                    <input type="text" name="location" class="input" value="${esc(isEdit ? ev.location : '')}" placeholder="z. B. Vereinsheim, Sporthalle, Online…">
+                    <label class="small muted">Ort / Halle (optional)</label>
+                    <input type="text" name="location" class="input" value="${esc(isEdit ? ev.location : '')}" placeholder="z. B. Römerhalle, Vereinsheim, Sporthalle…">
                 </div>
                 <div class="form-group">
                     <label class="small muted">Beschreibung / Notizen (optional)</label>
-                    <textarea name="description" class="input" rows="3" placeholder="Tagesordnung, Hinweise…">${esc(isEdit ? ev.description : '')}</textarea>
+                    <textarea name="description" class="input" rows="3" placeholder="Übungsleiter, Hinweise, Tagesordnung…">${esc(isEdit ? ev.description : '')}</textarea>
                 </div>
                 <button type="submit" class="btn btn-primary btn-block">💾 Termin speichern</button>
             </form>
         `);
 
         const body = $('#modal-body');
+        $('#cal-rec-sel', body)?.addEventListener('change', (e) => {
+            $('#cal-rec-until-wrap', body)?.classList.toggle('hidden', e.target.value === 'none');
+        });
+
         $('#cal-allday-chk', body)?.addEventListener('change', (e) => {
             const isAd = e.target.checked;
             const sInp = $('#cal-start-inp', body);
@@ -3392,6 +3471,8 @@
                     all_day: fd.get('all_day') === '1',
                     start_at: fd.get('start_at'),
                     end_at: fd.get('end_at') || '',
+                    recurrence: fd.get('recurrence') || 'none',
+                    recurrence_until: fd.get('recurrence_until') || '',
                     group_id: fd.get('group_id') || null,
                     color: fd.get('color'),
                     location: fd.get('location') || '',

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Cloud;
 
+use DateTimeImmutable;
 use PDO;
 use RuntimeException;
 
@@ -16,10 +17,11 @@ class CalendarManager
 
         $firstDay = $monthYm . '-01';
         $tsFirst  = strtotime($firstDay) ?: time();
-        // Include 7 days before and 14 days after month boundaries for calendar grid
+        // Include 7 days before and 14 days after month boundaries for 42-day calendar grid
         $rangeStart = date('Y-m-d', strtotime('-7 days', $tsFirst));
-        $rangeEnd   = date('Y-m-d', strtotime('+42 days', $tsFirst)) . ' 23:59:59';
+        $rangeEnd   = date('Y-m-d', strtotime('+42 days', $tsFirst));
         $today      = date('Y-m-d');
+        $upEnd      = date('Y-m-d', strtotime('+90 days'));
 
         $pdo = Database::get();
 
@@ -33,46 +35,19 @@ class CalendarManager
             JOIN users u ON u.id = e.creator_id
             LEFT JOIN groups g ON g.id = e.group_id
             WHERE ($accessSql)
-              AND (
-                  (e.start_at >= :rstart AND e.start_at <= :rend)
-                  OR (e.end_at IS NOT NULL AND e.end_at >= :rstart2 AND e.start_at <= :rend2)
-              )
             ORDER BY e.start_at ASC, e.id ASC
         ");
-        $params = [
-            ':rstart'  => $rangeStart,
-            ':rend'    => $rangeEnd,
-            ':rstart2' => $rangeStart,
-            ':rend2'   => $rangeEnd,
-        ];
+        $params = [];
         if (!$isAdmin) {
             $params[':uid']  = $userId;
             $params[':uid2'] = $userId;
         }
         $stmt->execute($params);
-        $monthEvents = array_map(fn($r) => self::formatEvent($r, $userId, $isAdmin, $canManageCalendar), $stmt->fetchAll());
+        $rawEvents = $stmt->fetchAll();
 
-        // Upcoming events from today
-        $upStmt = $pdo->prepare("
-            SELECT e.*, u.display_name AS creator_name, g.name AS group_name
-            FROM calendar_events e
-            JOIN users u ON u.id = e.creator_id
-            LEFT JOIN groups g ON g.id = e.group_id
-            WHERE ($accessSql)
-              AND (e.start_at >= :today OR (e.end_at IS NOT NULL AND e.end_at >= :today2))
-            ORDER BY e.start_at ASC, e.id ASC
-            LIMIT 20
-        ");
-        $upParams = [
-            ':today'  => $today,
-            ':today2' => $today,
-        ];
-        if (!$isAdmin) {
-            $upParams[':uid']  = $userId;
-            $upParams[':uid2'] = $userId;
-        }
-        $upStmt->execute($upParams);
-        $upcoming = array_map(fn($r) => self::formatEvent($r, $userId, $isAdmin, $canManageCalendar), $upStmt->fetchAll());
+        $monthEvents = self::expandEventsInWindow($rawEvents, $rangeStart, $rangeEnd, $userId, $isAdmin, $canManageCalendar);
+        $upcomingAll = self::expandEventsInWindow($rawEvents, $today, $upEnd, $userId, $isAdmin, $canManageCalendar);
+        $upcoming    = array_slice($upcomingAll, 0, 20);
 
         $groups = array_map(fn($g) => [
             'id'   => (int)$g['id'],
@@ -88,23 +63,109 @@ class CalendarManager
         ];
     }
 
+    /**
+     * Expands single and recurring events into concrete occurrences within [$winStartDate, $winEndDate].
+     */
+    private static function expandEventsInWindow(
+        array $rows,
+        string $winStartDate,
+        string $winEndDate,
+        int $userId,
+        bool $isAdmin,
+        bool $canManageCalendar
+    ): array {
+        $out = [];
+
+        foreach ($rows as $r) {
+            $base = self::formatEvent($r, $userId, $isAdmin, $canManageCalendar);
+            $rec  = $base['recurrence'];
+
+            $startDateStr = substr($base['start_at'], 0, 10);
+            $startTimeSuffix = strlen($base['start_at']) > 10 ? substr($base['start_at'], 10) : '';
+
+            $endDateStr = $base['end_at'] ? substr($base['end_at'], 0, 10) : $startDateStr;
+            $endTimeSuffix = ($base['end_at'] && strlen($base['end_at']) > 10) ? substr($base['end_at'], 10) : '';
+
+            $durationDays = max(0, (int)round(((strtotime($endDateStr) ?: 0) - (strtotime($startDateStr) ?: 0)) / 86400));
+
+            if ($rec === 'none' || $rec === '') {
+                if ($endDateStr >= $winStartDate && $startDateStr <= $winEndDate) {
+                    $out[] = $base;
+                }
+                continue;
+            }
+
+            // Recurring event ('weekly', 'biweekly', 'monthly', 'yearly')
+            $untilDate = !empty($base['recurrence_until']) ? substr($base['recurrence_until'], 0, 10) : '9999-12-31';
+            $effectiveEnd = min($winEndDate, $untilDate);
+            if ($startDateStr > $effectiveEnd) {
+                continue;
+            }
+
+            try {
+                $curr = new DateTimeImmutable($startDateStr);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $step = match ($rec) {
+                'weekly'   => '+1 week',
+                'biweekly' => '+2 weeks',
+                'monthly'  => '+1 month',
+                'yearly'   => '+1 year',
+                default    => '',
+            };
+            if ($step === '') {
+                continue;
+            }
+
+            $safety = 0;
+            while ($safety < 600) {
+                $safety++;
+                $occStartDay = $curr->format('Y-m-d');
+                if ($occStartDay > $effectiveEnd) {
+                    break;
+                }
+                $occEndDay = $durationDays > 0
+                    ? $curr->modify("+{$durationDays} days")->format('Y-m-d')
+                    : $occStartDay;
+
+                if ($occEndDay >= $winStartDate && $occStartDay <= $effectiveEnd) {
+                    $occ = $base;
+                    $occ['start_at'] = $occStartDay . $startTimeSuffix;
+                    $occ['end_at']   = $base['end_at'] !== null ? ($occEndDay . $endTimeSuffix) : null;
+                    $out[] = $occ;
+                }
+
+                $curr = $curr->modify($step);
+            }
+        }
+
+        usort($out, fn($a, $b) => strcmp($a['start_at'], $b['start_at']) ?: ($a['id'] <=> $b['id']));
+        return $out;
+    }
+
     private static function formatEvent(array $r, int $userId, bool $isAdmin, bool $canManageCalendar): array
     {
         $creatorId = (int)$r['creator_id'];
         return [
-            'id'           => (int)$r['id'],
-            'creator_id'   => $creatorId,
-            'creator_name' => $r['creator_name'] ?? '',
-            'group_id'     => $r['group_id'] !== null ? (int)$r['group_id'] : null,
-            'group_name'   => $r['group_name'] ?? null,
-            'title'        => $r['title'],
-            'start_at'     => $r['start_at'],
-            'end_at'       => $r['end_at'],
-            'all_day'      => (int)$r['all_day'] === 1,
-            'location'     => $r['location'] ?? '',
-            'description'  => $r['description'] ?? '',
-            'color'        => $r['color'] ?: '#3b82f6',
-            'can_edit'     => $isAdmin || ($canManageCalendar && $creatorId === $userId) || $canManageCalendar,
+            'id'               => (int)$r['id'],
+            'creator_id'       => $creatorId,
+            'creator_name'     => $r['creator_name'] ?? '',
+            'group_id'         => $r['group_id'] !== null ? (int)$r['group_id'] : null,
+            'group_name'       => $r['group_name'] ?? null,
+            'title'            => $r['title'],
+            'start_at'         => $r['start_at'],
+            'end_at'           => $r['end_at'],
+            'base_start_at'    => $r['start_at'],
+            'base_end_at'      => $r['end_at'],
+            'all_day'          => (int)$r['all_day'] === 1,
+            'recurrence'       => $r['recurrence'] ?? 'none',
+            'recurrence_until' => $r['recurrence_until'] ?? null,
+            'location'         => $r['location'] ?? '',
+            'description'      => $r['description'] ?? '',
+            'color'            => $r['color'] ?: '#3b82f6',
+            'can_edit'         => $isAdmin || $canManageCalendar || $creatorId === $userId,
         ];
     }
 
@@ -132,10 +193,19 @@ class CalendarManager
             }
         }
 
+        $allowedRec = ['none', 'weekly', 'biweekly', 'monthly', 'yearly'];
+        $recurrence = in_array($input['recurrence'] ?? 'none', $allowedRec, true)
+            ? (string)$input['recurrence']
+            : 'none';
+        $recUntilRaw = trim((string)($input['recurrence_until'] ?? ''));
+        $recurrenceUntil = ($recurrence !== 'none' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $recUntilRaw))
+            ? $recUntilRaw
+            : null;
+
         $groupId     = !empty($input['group_id']) && (int)$input['group_id'] > 0 ? (int)$input['group_id'] : null;
         $location    = mb_substr(trim((string)($input['location'] ?? '')), 0, 200);
         $description = mb_substr(trim((string)($input['description'] ?? '')), 0, 4000);
-        $allowedColors = ['#3b82f6', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899'];
+        $allowedColors = ['#3b82f6', '#06b6d4', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899'];
         $color = in_array($input['color'] ?? '', $allowedColors, true) ? (string)$input['color'] : '#3b82f6';
 
         $pdo = Database::get();
@@ -154,6 +224,7 @@ class CalendarManager
             $upd = $pdo->prepare('
                 UPDATE calendar_events
                 SET group_id = :gid, title = :t, start_at = :sa, end_at = :ea, all_day = :ad,
+                    recurrence = :rec, recurrence_until = :ru,
                     location = :loc, description = :desc, color = :col
                 WHERE id = :id
             ');
@@ -163,6 +234,8 @@ class CalendarManager
                 ':sa'   => $startAt,
                 ':ea'   => $endAt,
                 ':ad'   => $allDay,
+                ':rec'  => $recurrence,
+                ':ru'   => $recurrenceUntil,
                 ':loc'  => $location,
                 ':desc' => $description,
                 ':col'  => $color,
@@ -172,8 +245,8 @@ class CalendarManager
         }
 
         $ins = $pdo->prepare("
-            INSERT INTO calendar_events (creator_id, group_id, title, start_at, end_at, all_day, location, description, color, created_at)
-            VALUES (:uid, :gid, :t, :sa, :ea, :ad, :loc, :desc, :col, datetime('now'))
+            INSERT INTO calendar_events (creator_id, group_id, title, start_at, end_at, all_day, recurrence, recurrence_until, location, description, color, created_at)
+            VALUES (:uid, :gid, :t, :sa, :ea, :ad, :rec, :ru, :loc, :desc, :col, datetime('now'))
         ");
         $ins->execute([
             ':uid'  => $userId,
@@ -182,6 +255,8 @@ class CalendarManager
             ':sa'   => $startAt,
             ':ea'   => $endAt,
             ':ad'   => $allDay,
+            ':rec'  => $recurrence,
+            ':ru'   => $recurrenceUntil,
             ':loc'  => $location,
             ':desc' => $description,
             ':col'  => $color,
@@ -222,11 +297,31 @@ class CalendarManager
 
         if ($allDay) {
             $dtStart = 'DTSTART;VALUE=DATE:' . date('Ymd', $startTs);
-            // In iCalendar, DTEND for all-day events is exclusive (+1 day)
             $dtEnd   = 'DTEND;VALUE=DATE:' . date('Ymd', strtotime('+1 day', $endTs));
         } else {
             $dtStart = 'DTSTART:' . date('Ymd\THis', $startTs);
             $dtEnd   = 'DTEND:' . date('Ymd\THis', $endTs);
+        }
+
+        $rec = $ev['recurrence'] ?? 'none';
+        $rrule = '';
+        if ($rec !== 'none' && $rec !== '') {
+            $freq = match ($rec) {
+                'weekly'   => 'FREQ=WEEKLY',
+                'biweekly' => 'FREQ=WEEKLY;INTERVAL=2',
+                'monthly'  => 'FREQ=MONTHLY',
+                'yearly'   => 'FREQ=YEARLY',
+                default    => '',
+            };
+            if ($freq !== '') {
+                if (!empty($ev['recurrence_until'])) {
+                    $uTs = strtotime((string)$ev['recurrence_until'] . ' 23:59:59');
+                    if ($uTs) {
+                        $freq .= ';UNTIL=' . gmdate('Ymd\THis\Z', $uTs);
+                    }
+                }
+                $rrule = 'RRULE:' . $freq;
+            }
         }
 
         $escIcs = fn(string $s) => str_replace(["\r\n", "\n", "\r", ',', ';'], ['\n', '\n', '', '\,', '\;'], $s);
@@ -241,12 +336,15 @@ class CalendarManager
             'DTSTAMP:' . gmdate('Ymd\THis\Z'),
             $dtStart,
             $dtEnd,
-            'SUMMARY:' . $escIcs((string)$ev['title']),
-            'LOCATION:' . $escIcs((string)$ev['location']),
-            'DESCRIPTION:' . $escIcs((string)$ev['description']),
-            'END:VEVENT',
-            'END:VCALENDAR',
         ];
+        if ($rrule !== '') {
+            $lines[] = $rrule;
+        }
+        $lines[] = 'SUMMARY:' . $escIcs((string)$ev['title']);
+        $lines[] = 'LOCATION:' . $escIcs((string)$ev['location']);
+        $lines[] = 'DESCRIPTION:' . $escIcs((string)$ev['description']);
+        $lines[] = 'END:VEVENT';
+        $lines[] = 'END:VCALENDAR';
 
         $ics = implode("\r\n", $lines) . "\r\n";
         $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', (string)$ev['title']) ?: 'termin';
