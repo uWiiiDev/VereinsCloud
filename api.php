@@ -618,16 +618,22 @@ try {
 
         case 'calendar_list':
             $month = (string)($_GET['month'] ?? '');
-            $data  = CalendarManager::listEvents($userId, $user['role'] === 'admin', $month);
+            $data  = CalendarManager::listEvents($userId, $user['role'] === 'admin', !empty($user['perm_calendar']), $month);
             jsonResponse(['ok' => true] + $data);
 
         case 'calendar_save':
+            if (empty($user['perm_calendar'])) {
+                throw new RuntimeException('Keine Berechtigung zum Eintragen oder Bearbeiten von Kalendereinträgen.');
+            }
             $evId = isset($input['id']) && $input['id'] !== '' && $input['id'] !== null ? (int)$input['id'] : null;
-            $savedId = CalendarManager::saveEvent($userId, $user['role'] === 'admin', $evId, $input);
+            $savedId = CalendarManager::saveEvent($userId, true, $evId, $input);
             jsonResponse(['ok' => true, 'id' => $savedId]);
 
         case 'calendar_delete':
-            CalendarManager::deleteEvent($userId, $user['role'] === 'admin', (int)($input['id'] ?? 0));
+            if (empty($user['perm_calendar'])) {
+                throw new RuntimeException('Keine Berechtigung zum Löschen von Kalendereinträgen.');
+            }
+            CalendarManager::deleteEvent($userId, true, (int)($input['id'] ?? 0));
             jsonResponse(['ok' => true]);
 
         case 'calendar_ics':
@@ -696,7 +702,8 @@ try {
                 $user['role'] === 'admin',
                 !empty($input['perm_users']),
                 !empty($input['perm_groups']),
-                !empty($input['perm_group_folders'])
+                !empty($input['perm_group_folders']),
+                !empty($input['perm_calendar'])
             );
             jsonResponse(['ok' => true, 'id' => $id]);
 
@@ -715,7 +722,8 @@ try {
                 $user['role'] === 'admin',
                 isset($input['perm_users']) ? !empty($input['perm_users']) : null,
                 isset($input['perm_groups']) ? !empty($input['perm_groups']) : null,
-                isset($input['perm_group_folders']) ? !empty($input['perm_group_folders']) : null
+                isset($input['perm_group_folders']) ? !empty($input['perm_group_folders']) : null,
+                isset($input['perm_calendar']) ? !empty($input['perm_calendar']) : null
             );
             jsonResponse(['ok' => true]);
 

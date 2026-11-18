@@ -247,6 +247,7 @@ class Database
             'perm_users'           => "INTEGER NOT NULL DEFAULT 0",
             'perm_groups'          => "INTEGER NOT NULL DEFAULT 0",
             'perm_group_folders'   => "INTEGER NOT NULL DEFAULT 0",
+            'perm_calendar'        => "INTEGER NOT NULL DEFAULT 0",
         ];
         foreach ($addCols as $cName => $cDef) {
             if (!isset($existingCols[$cName])) {

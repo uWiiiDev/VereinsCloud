@@ -218,6 +218,7 @@ $bootData = [
                             <span class="muted small" id="user-role-badge">user</span>
                         </div>
                     </div>
+                    <button type="button" class="btn btn-ghost btn-sm hidden" id="btn-admin-modal" title="Administration öffnen">⚙️</button>
                     <button type="button" class="btn btn-ghost btn-sm" id="btn-logout" title="Abmelden">🚪</button>
                 </div>
             </div>

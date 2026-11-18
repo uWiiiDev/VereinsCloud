@@ -200,7 +200,7 @@ class Auth
         $stmt = $pdo->prepare('
             SELECT id, username, display_name, email, role, quota_bytes, is_active,
                    totp_enabled, email_2fa_enabled, passkey_2fa_enabled,
-                   perm_users, perm_groups, perm_group_folders,
+                   perm_users, perm_groups, perm_group_folders, perm_calendar,
                    (webdav_token_hash IS NOT NULL AND webdav_token_hash != \'\') AS has_webdav_token,
                    created_at,
                    (SELECT COUNT(*) FROM user_passkeys pk WHERE pk.user_id = users.id) AS passkey_count
@@ -226,6 +226,7 @@ class Auth
         $user['perm_users']          = $isAdmin || (int)($user['perm_users'] ?? 0) === 1;
         $user['perm_groups']         = $isAdmin || (int)($user['perm_groups'] ?? 0) === 1;
         $user['perm_group_folders']  = $isAdmin || (int)($user['perm_group_folders'] ?? 0) === 1;
+        $user['perm_calendar']       = $isAdmin || (int)($user['perm_calendar'] ?? 0) === 1;
         $user['has_admin_panel']     = $isAdmin || $user['perm_users'] || $user['perm_groups'] || $user['perm_group_folders'];
         return $user;
     }

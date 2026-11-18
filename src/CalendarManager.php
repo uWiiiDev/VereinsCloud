@@ -8,7 +8,7 @@ use RuntimeException;
 
 class CalendarManager
 {
-    public static function listEvents(int $userId, bool $isAdmin, string $monthYm = ''): array
+    public static function listEvents(int $userId, bool $isAdmin, bool $canManageCalendar, string $monthYm = ''): array
     {
         if (!preg_match('/^\d{4}-\d{2}$/', $monthYm)) {
             $monthYm = date('Y-m');
@@ -50,7 +50,7 @@ class CalendarManager
             $params[':uid2'] = $userId;
         }
         $stmt->execute($params);
-        $monthEvents = array_map(fn($r) => self::formatEvent($r, $userId, $isAdmin), $stmt->fetchAll());
+        $monthEvents = array_map(fn($r) => self::formatEvent($r, $userId, $isAdmin, $canManageCalendar), $stmt->fetchAll());
 
         // Upcoming events from today
         $upStmt = $pdo->prepare("
@@ -72,7 +72,7 @@ class CalendarManager
             $upParams[':uid2'] = $userId;
         }
         $upStmt->execute($upParams);
-        $upcoming = array_map(fn($r) => self::formatEvent($r, $userId, $isAdmin), $upStmt->fetchAll());
+        $upcoming = array_map(fn($r) => self::formatEvent($r, $userId, $isAdmin, $canManageCalendar), $upStmt->fetchAll());
 
         $groups = array_map(fn($g) => [
             'id'   => (int)$g['id'],
@@ -80,14 +80,15 @@ class CalendarManager
         ], $pdo->query('SELECT id, name FROM groups ORDER BY name COLLATE NOCASE ASC')->fetchAll());
 
         return [
-            'month'    => $monthYm,
-            'events'   => $monthEvents,
-            'upcoming' => $upcoming,
-            'groups'   => $groups,
+            'month'      => $monthYm,
+            'can_manage' => $isAdmin || $canManageCalendar,
+            'events'     => $monthEvents,
+            'upcoming'   => $upcoming,
+            'groups'     => $groups,
         ];
     }
 
-    private static function formatEvent(array $r, int $userId, bool $isAdmin): array
+    private static function formatEvent(array $r, int $userId, bool $isAdmin, bool $canManageCalendar): array
     {
         $creatorId = (int)$r['creator_id'];
         return [
@@ -103,7 +104,7 @@ class CalendarManager
             'location'     => $r['location'] ?? '',
             'description'  => $r['description'] ?? '',
             'color'        => $r['color'] ?: '#3b82f6',
-            'can_edit'     => $isAdmin || $creatorId === $userId,
+            'can_edit'     => $isAdmin || ($canManageCalendar && $creatorId === $userId) || $canManageCalendar,
         ];
     }
 

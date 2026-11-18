@@ -422,7 +422,8 @@
         $('#user-display-name').textContent = state.user.display_name || state.user.username;
         $('#user-role-badge').textContent = state.user.role === 'admin' ? 'Administrator' : 'Benutzer';
         $('#user-avatar').textContent = (state.user.display_name || state.user.username || 'U').charAt(0).toUpperCase();
-        $('#btn-admin-modal')?.classList.toggle('hidden', state.user.role !== 'admin');
+        const showAdmin = !!(state.user.role === 'admin' || state.user.has_admin_panel);
+        $('#btn-admin-modal')?.classList.toggle('hidden', !showAdmin);
         updateQuotaBar(state.user.used_bytes, state.user.quota_bytes);
     }
 
@@ -3123,6 +3124,7 @@
             const events = res.events || [];
             const upcoming = res.upcoming || [];
             const groups = res.groups || [];
+            const canManageCal = !!res.can_manage;
 
             const [year, month] = ym.split('-').map(Number);
             const monthTitle = `${MONTH_NAMES_DE[month - 1] || ''} ${year}`;
@@ -3195,7 +3197,7 @@
                         <button type="button" class="btn btn-ghost btn-sm" id="btn-cal-next" title="Nächster Monat">▶</button>
                         <button type="button" class="btn btn-ghost btn-sm" id="btn-cal-today">Heute</button>
                     </div>
-                    <button type="button" class="btn btn-primary btn-sm" id="btn-cal-new">➕ Neuer Termin</button>
+                    ${canManageCal ? `<button type="button" class="btn btn-primary btn-sm" id="btn-cal-new">➕ Neuer Termin</button>` : ''}
                 </div>
 
                 <div class="cal-layout">
@@ -3237,11 +3239,13 @@
                 });
             });
 
-            $$('.cal-day[data-cal-date]', container).forEach((dayEl) => {
-                dayEl.addEventListener('click', () => {
-                    openCalendarEventModal(null, dayEl.dataset.calDate, groups);
+            if (canManageCal) {
+                $$('.cal-day[data-cal-date]', container).forEach((dayEl) => {
+                    dayEl.addEventListener('click', () => {
+                        openCalendarEventModal(null, dayEl.dataset.calDate, groups);
+                    });
                 });
-            });
+            }
         } catch (err) {
             toast(err.message, 'error');
         }
@@ -4224,11 +4228,12 @@
                 const quotaMb = u.quota_bytes > 0 ? Math.round(u.quota_bytes / 1048576) : 0;
                 const delBadges = [];
                 if (u.role !== 'admin') {
+                    if (u.perm_calendar) delBadges.push('📅');
                     if (u.perm_users) delBadges.push('👥');
                     if (u.perm_groups) delBadges.push('👪');
                     if (u.perm_group_folders) delBadges.push('📂');
                 }
-                const permHint = delBadges.length > 0 ? ` <span class="badge" title="Delegierte Admin-Rechte">⚙️ ${delBadges.join('')}</span>` : '';
+                const permHint = delBadges.length > 0 ? ` <span class="badge" title="Zusatzrechte: ${delBadges.join(' ')}">${delBadges.join(' ')}</span>` : '';
                 const canModifyRow = isFullAdmin || u.role !== 'admin';
                 return `
                     <tr>
@@ -4342,15 +4347,17 @@
                                 <input type="number" name="quota_mb" class="input" value="5120" min="0">
                             </div>
                         </div>
-                        ${isFullAdmin ? `
                         <div style="margin-bottom:0.75rem">
-                            <label class="small muted" style="display:block;margin-bottom:0.3rem">Optionale Teil-Administrationsrechte (für normale Benutzer):</label>
+                            <label class="small muted" style="display:block;margin-bottom:0.3rem">Optionale Berechtigungen (für normale Benutzer):</label>
                             <div style="display:flex;gap:0.75rem;flex-wrap:wrap;font-size:0.85rem">
+                                <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_calendar" value="1"> 📅 Kalender pflegen</label>
+                                ${isFullAdmin ? `
                                 <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_users" value="1"> 👥 Benutzer verwalten</label>
                                 <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_groups" value="1"> 👪 Gruppen verwalten</label>
                                 <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_group_folders" value="1"> 📂 Gruppenordner verwalten</label>
+                                ` : ''}
                             </div>
-                        </div>` : ''}
+                        </div>
                         <button type="submit" class="btn btn-primary btn-block">➕ Benutzer anlegen</button>
                     </form>
                 </div>
@@ -4656,10 +4663,15 @@
                         <input type="number" name="quota_mb" class="input" value="${u.quota_mb}" min="0" required>
                     </div>
                 </div>
-                ${isFullAdmin && u.id !== state.user.id ? `
+                ${u.id !== state.user.id ? `
                 <div class="form-group" style="border:1px solid var(--border);border-radius:8px;padding:0.65rem;background:var(--bg)">
-                    <label class="small muted" style="display:block;margin-bottom:0.35rem">Delegierte Teil-Administrationsrechte (für normale Benutzer):</label>
+                    <label class="small muted" style="display:block;margin-bottom:0.35rem">Berechtigungen & delegierte Verwaltungsrechte:</label>
                     <div style="display:flex;flex-direction:column;gap:0.35rem;font-size:0.86rem">
+                        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">
+                            <input type="checkbox" name="perm_calendar" value="1" ${u.perm_calendar ? 'checked' : ''}>
+                            <span>📅 Kalender verwalten (Termine eintragen, bearbeiten & löschen)</span>
+                        </label>
+                        ${isFullAdmin ? `
                         <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">
                             <input type="checkbox" name="perm_users" value="1" ${u.perm_users ? 'checked' : ''}>
                             <span>👥 Benutzer verwalten (Anlegen, Passwort & Quota)</span>
@@ -4672,6 +4684,7 @@
                             <input type="checkbox" name="perm_group_folders" value="1" ${u.perm_group_folders ? 'checked' : ''}>
                             <span>📂 Gruppenordner verwalten (Gruppenordner anlegen & zuweisen)</span>
                         </label>
+                        ` : ''}
                     </div>
                 </div>` : ''}
                 <div class="form-group">
@@ -4702,6 +4715,7 @@
                     quota_mb: Number(fd.get('quota_mb')),
                     is_active: u.id === state.user.id ? true : fd.get('is_active') === '1',
                     new_password: fd.get('new_password') || '',
+                    perm_calendar: fd.get('perm_calendar') === '1',
                     perm_users: fd.get('perm_users') === '1',
                     perm_groups: fd.get('perm_groups') === '1',
                     perm_group_folders: fd.get('perm_group_folders') === '1',
