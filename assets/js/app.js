@@ -34,6 +34,11 @@
         filterMenuOpen: false,
         calendarMonth: new Date().toISOString().slice(0, 7),
         calendarColorFilter: 'all',
+        memberStatusFilter: 'all',
+        memberDeptFilter: 'all',
+        memberSearch: '',
+        memberSortBy: 'name',
+        memberSortDir: 'asc',
     };
 
     // Apply saved theme immediately
@@ -425,6 +430,8 @@
         $('#user-avatar').textContent = (state.user.display_name || state.user.username || 'U').charAt(0).toUpperCase();
         const showAdmin = !!(state.user.role === 'admin' || state.user.has_admin_panel);
         $('#btn-admin-modal')?.classList.toggle('hidden', !showAdmin);
+        const showMembers = !!(state.user.role === 'admin' || state.user.perm_members);
+        $('#nav-item-members')?.classList.toggle('hidden', !showMembers);
         updateQuotaBar(state.user.used_bytes, state.user.quota_bytes);
     }
 
@@ -770,6 +777,10 @@
         }
         if (state.view === 'calendar') {
             await loadCalendarView();
+            return;
+        }
+        if (state.view === 'members') {
+            await loadMembersView();
             return;
         }
 
@@ -3487,6 +3498,402 @@
         });
     }
 
+    // Club Member Management ("🪪 Mitglieder") View
+    let cachedMembersData = { members: [], departments: [] };
+
+    async function loadMembersView() {
+        $('#folder-write-actions').classList.add('hidden');
+        $('#trash-toolbar').classList.add('hidden');
+        $('#breadcrumbs').innerHTML = `<span class="crumb active">🪪 Vereins-Mitgliederverwaltung</span>`;
+
+        try {
+            const res = await apiGet({ action: 'members_list' });
+            cachedMembersData = {
+                members: res.members || [],
+                departments: res.departments || [],
+            };
+            renderMembersViewContent();
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    }
+
+    function renderMembersViewContent() {
+        const container = $('#items-container');
+        const all = cachedMembersData.members || [];
+        const departments = cachedMembersData.departments || [];
+
+        const totalCount = all.length;
+        const activeCount = all.filter((m) => m.status === 'Aktiv').length;
+        const honorCount = all.filter((m) => m.status === 'Ehrenmitglied').length;
+        const youthCount = all.filter((m) => m.status === 'Jugend').length;
+        const totalFee = all
+            .filter((m) => m.status !== 'Ausgetreten')
+            .reduce((sum, m) => sum + (Number(m.fee_amount) || 0), 0);
+
+        const q = (state.memberSearch || '').trim().toLowerCase();
+        const stFilter = state.memberStatusFilter || 'all';
+        const depFilter = state.memberDeptFilter || 'all';
+
+        const filtered = all.filter((m) => {
+            if (stFilter !== 'all' && m.status !== stFilter) return false;
+            if (depFilter !== 'all' && m.department !== depFilter) return false;
+            if (q !== '') {
+                const hay = `${m.member_no} ${m.first_name} ${m.last_name} ${m.street} ${m.zip} ${m.city} ${m.email} ${m.phone} ${m.department} ${m.notes}`.toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+
+        const dir = state.memberSortDir === 'desc' ? -1 : 1;
+        const sorted = filtered.slice().sort((a, b) => {
+            if (state.memberSortBy === 'no') {
+                return String(a.member_no || '').localeCompare(String(b.member_no || ''), 'de', { numeric: true }) * dir;
+            }
+            if (state.memberSortBy === 'birth') {
+                return String(a.birth_date || '').localeCompare(String(b.birth_date || '')) * dir;
+            }
+            if (state.memberSortBy === 'city') {
+                return String(a.city || '').localeCompare(String(b.city || ''), 'de') * dir;
+            }
+            if (state.memberSortBy === 'status') {
+                return String(a.status || '').localeCompare(String(b.status || ''), 'de') * dir;
+            }
+            if (state.memberSortBy === 'joined') {
+                return String(a.joined_at || '').localeCompare(String(b.joined_at || '')) * dir;
+            }
+            const nameA = `${a.last_name} ${a.first_name}`;
+            const nameB = `${b.last_name} ${b.first_name}`;
+            return nameA.localeCompare(nameB, 'de', { sensitivity: 'base' }) * dir;
+        });
+
+        const arrow = (col) => state.memberSortBy === col
+            ? `<span class="th-sort-arrow">${state.memberSortDir === 'asc' ? '▲' : '▼'}</span>`
+            : '';
+
+        const statusBadge = (st) => {
+            switch (st) {
+                case 'Aktiv':         return `<span class="badge" style="border-color:var(--success);color:var(--success)">✅ Aktiv</span>`;
+                case 'Ehrenmitglied': return `<span class="badge" style="border-color:var(--warning);color:var(--warning)">🎖️ Ehrenmitglied</span>`;
+                case 'Jugend':        return `<span class="badge badge-shared">🌱 Jugend</span>`;
+                case 'Passiv':        return `<span class="badge">⏸️ Passiv</span>`;
+                case 'Ausgetreten':   return `<span class="badge" style="opacity:0.6">🚪 Ausgetreten</span>`;
+                default:              return `<span class="badge">${esc(st)}</span>`;
+            }
+        };
+
+        const rowsHtml = sorted.map((m) => `
+            <tr data-edit-mem="${m.id}" style="cursor:pointer">
+                <td class="muted small" style="white-space:nowrap">${esc(m.member_no || '—')}</td>
+                <td>
+                    <strong>${esc(m.last_name)}${m.last_name && m.first_name ? ', ' : ''}${esc(m.first_name)}</strong>
+                    ${m.department ? `<div class="muted small">🏷️ ${esc(m.department)}</div>` : ''}
+                </td>
+                <td class="small" style="white-space:nowrap">
+                    ${m.birth_date ? esc(formatDeDate(m.birth_date, true)) : '—'}
+                    ${m.age !== null ? `<span class="muted">(${m.age} J.)</span>` : ''}
+                </td>
+                <td class="small">
+                    ${esc([m.street, [m.zip, m.city].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '—')}
+                </td>
+                <td class="small">
+                    ${m.phone ? `<div>📞 ${esc(m.phone)}</div>` : ''}
+                    ${m.email ? `<div class="muted">${esc(m.email)}</div>` : ''}
+                    ${!m.phone && !m.email ? '—' : ''}
+                </td>
+                <td>${statusBadge(m.status)}</td>
+                <td class="small hide-mobile" style="white-space:nowrap">
+                    ${m.joined_at ? esc(formatDeDate(m.joined_at, true)) : '—'}
+                    ${m.years !== null ? `<span class="muted">(${m.years} J.)</span>` : ''}
+                </td>
+                <td style="text-align:right;white-space:nowrap">
+                    <button type="button" class="btn btn-ghost btn-sm" data-btn-edit-mem="${m.id}" title="Bearbeiten">✏️</button>
+                    <button type="button" class="btn btn-danger btn-sm" data-btn-del-mem="${m.id}" title="Löschen">🗑️</button>
+                </td>
+            </tr>
+        `).join('');
+
+        const deptOpts = [
+            `<option value="all" ${depFilter === 'all' ? 'selected' : ''}>Alle Abteilungen</option>`,
+            ...departments.map((d) => `<option value="${esc(d)}" ${depFilter === d ? 'selected' : ''}>🏷️ ${esc(d)}</option>`),
+        ].join('');
+
+        container.innerHTML = `
+            <div style="display:flex;gap:0.65rem;flex-wrap:wrap;margin-bottom:0.9rem">
+                <span class="badge" style="font-size:0.82rem;padding:0.35rem 0.7rem">👥 Gesamt: <strong>${totalCount}</strong></span>
+                <span class="badge" style="font-size:0.82rem;padding:0.35rem 0.7rem">✅ Aktiv: <strong>${activeCount}</strong></span>
+                <span class="badge" style="font-size:0.82rem;padding:0.35rem 0.7rem">🌱 Jugend: <strong>${youthCount}</strong></span>
+                <span class="badge" style="font-size:0.82rem;padding:0.35rem 0.7rem">🎖️ Ehrenmitglieder: <strong>${honorCount}</strong></span>
+                <span class="badge" style="font-size:0.82rem;padding:0.35rem 0.7rem">💶 Beitragssumme: <strong>${totalFee.toFixed(2).replace('.', ',')} €</strong></span>
+            </div>
+
+            <div class="cal-header-bar" style="margin-bottom:0.85rem">
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;flex:1">
+                    <input type="search" id="mem-search-inp" class="input small" style="max-width:250px" placeholder="🔍 Name, Ort, Nr., E-Mail…" value="${esc(state.memberSearch)}">
+                    <select id="mem-status-filter" class="input small" style="width:auto">
+                        <option value="all" ${stFilter === 'all' ? 'selected' : ''}>✦ Alle Status (${totalCount})</option>
+                        <option value="Aktiv" ${stFilter === 'Aktiv' ? 'selected' : ''}>✅ Aktiv</option>
+                        <option value="Jugend" ${stFilter === 'Jugend' ? 'selected' : ''}>🌱 Jugend</option>
+                        <option value="Passiv" ${stFilter === 'Passiv' ? 'selected' : ''}>⏸️ Passiv</option>
+                        <option value="Ehrenmitglied" ${stFilter === 'Ehrenmitglied' ? 'selected' : ''}>🎖️ Ehrenmitglied</option>
+                        <option value="Ausgetreten" ${stFilter === 'Ausgetreten' ? 'selected' : ''}>🚪 Ausgetreten</option>
+                    </select>
+                    ${departments.length > 0 ? `<select id="mem-dept-filter" class="input small" style="width:auto">${deptOpts}</select>` : ''}
+                </div>
+                <div style="display:flex;gap:0.45rem;flex-wrap:wrap">
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-mem-import">📥 CSV-Import</button>
+                    <a class="btn btn-ghost btn-sm" href="api.php?action=members_export_csv">📤 Excel/CSV-Export</a>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-mem-new">➕ Neues Mitglied</button>
+                </div>
+            </div>
+
+            <div class="file-table-wrap">
+                <table class="file-table">
+                    <thead>
+                        <tr>
+                            <th style="width:70px"><span class="th-sort-btn ${state.memberSortBy === 'no' ? 'active' : ''}" data-mem-sort="no">Nr. ${arrow('no')}</span></th>
+                            <th><span class="th-sort-btn ${state.memberSortBy === 'name' ? 'active' : ''}" data-mem-sort="name">Name / Abteilung ${arrow('name')}</span></th>
+                            <th><span class="th-sort-btn ${state.memberSortBy === 'birth' ? 'active' : ''}" data-mem-sort="birth">Geburtsdatum ${arrow('birth')}</span></th>
+                            <th><span class="th-sort-btn ${state.memberSortBy === 'city' ? 'active' : ''}" data-mem-sort="city">Anschrift ${arrow('city')}</span></th>
+                            <th>Kontakt</th>
+                            <th><span class="th-sort-btn ${state.memberSortBy === 'status' ? 'active' : ''}" data-mem-sort="status">Status ${arrow('status')}</span></th>
+                            <th class="hide-mobile"><span class="th-sort-btn ${state.memberSortBy === 'joined' ? 'active' : ''}" data-mem-sort="joined">Eintritt ${arrow('joined')}</span></th>
+                            <th style="width:90px;text-align:right">Aktion</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml || '<tr><td colspan="8" class="empty-cell">Keine Mitglieder gefunden. Über „➕ Neues Mitglied“ oder „📥 CSV-Import“ können Sie Ihre Vereinsmitglieder anlegen.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        const memById = new Map(all.map((m) => [m.id, m]));
+
+        $('#mem-search-inp', container)?.addEventListener('input', (e) => {
+            const pos = e.target.selectionStart ?? e.target.value.length;
+            state.memberSearch = e.target.value;
+            renderMembersViewContent();
+            const inp = $('#mem-search-inp', container);
+            if (inp) {
+                inp.focus();
+                try { inp.setSelectionRange(pos, pos); } catch (_) {}
+            }
+        });
+
+        $('#mem-status-filter', container)?.addEventListener('change', (e) => {
+            state.memberStatusFilter = e.target.value;
+            renderMembersViewContent();
+        });
+
+        $('#mem-dept-filter', container)?.addEventListener('change', (e) => {
+            state.memberDeptFilter = e.target.value;
+            renderMembersViewContent();
+        });
+
+        $$('[data-mem-sort]', container).forEach((el) => {
+            el.addEventListener('click', () => {
+                const col = el.dataset.memSort;
+                if (state.memberSortBy === col) {
+                    state.memberSortDir = state.memberSortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    state.memberSortBy = col;
+                    state.memberSortDir = 'asc';
+                }
+                renderMembersViewContent();
+            });
+        });
+
+        $('#btn-mem-new', container)?.addEventListener('click', () => {
+            openMemberModal(null);
+        });
+
+        $('#btn-mem-import', container)?.addEventListener('click', () => {
+            openMemberCsvImportModal();
+        });
+
+        $$('tr[data-edit-mem]', container).forEach((tr) => {
+            tr.addEventListener('click', (e) => {
+                if (e.target.closest('button')) return;
+                const m = memById.get(Number(tr.dataset.editMem));
+                if (m) openMemberModal(m);
+            });
+        });
+
+        $$('[data-btn-edit-mem]', container).forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const m = memById.get(Number(btn.dataset.btnEditMem));
+                if (m) openMemberModal(m);
+            });
+        });
+
+        $$('[data-btn-del-mem]', container).forEach((btn) => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const m = memById.get(Number(btn.dataset.btnDelMem));
+                if (!m) return;
+                if (!confirm(`Mitglied „${m.first_name} ${m.last_name}“ wirklich löschen?`)) return;
+                try {
+                    await apiPost('members_delete', { id: m.id });
+                    toast('Mitglied gelöscht.');
+                    loadMembersView();
+                } catch (err) {
+                    toast(err.message, 'error');
+                }
+            });
+        });
+    }
+
+    function openMemberModal(m) {
+        const isEdit = !!m;
+        const statuses = ['Aktiv', 'Jugend', 'Passiv', 'Ehrenmitglied', 'Ausgetreten'];
+        const stOpts = statuses.map((s) => `<option value="${s}" ${isEdit && m.status === s ? 'selected' : ''}>${s}</option>`).join('');
+
+        openModal(isEdit ? `🪪 Mitglied bearbeiten: ${m.first_name} ${m.last_name}` : '➕ Neues Vereinsmitglied anlegen', `
+            <form id="member-edit-form">
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="width:130px">
+                        <label class="small muted">Mitglieds-Nr.</label>
+                        <input type="text" name="member_no" class="input" value="${esc(isEdit ? m.member_no : '')}" placeholder="z. B. 1042">
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Vorname</label>
+                        <input type="text" name="first_name" class="input" value="${esc(isEdit ? m.first_name : '')}" required>
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Nachname</label>
+                        <input type="text" name="last_name" class="input" value="${esc(isEdit ? m.last_name : '')}" required>
+                    </div>
+                </div>
+
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:1">
+                        <label class="small muted">Geburtsdatum</label>
+                        <input type="date" name="birth_date" class="input" value="${esc(isEdit && m.birth_date ? m.birth_date : '')}">
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Status</label>
+                        <select name="status" class="input">${stOpts}</select>
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Abteilung / Funktion</label>
+                        <input type="text" name="department" class="input" value="${esc(isEdit ? m.department : '')}" placeholder="z. B. Turnen, Fußball, Vorstand…">
+                    </div>
+                </div>
+
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:2">
+                        <label class="small muted">Straße & Hausnummer</label>
+                        <input type="text" name="street" class="input" value="${esc(isEdit ? m.street : '')}">
+                    </div>
+                    <div style="width:105px">
+                        <label class="small muted">PLZ</label>
+                        <input type="text" name="zip" class="input" value="${esc(isEdit ? m.zip : '')}">
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Wohnort</label>
+                        <input type="text" name="city" class="input" value="${esc(isEdit ? m.city : '')}">
+                    </div>
+                </div>
+
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:1">
+                        <label class="small muted">Telefon / Mobil</label>
+                        <input type="text" name="phone" class="input" value="${esc(isEdit ? m.phone : '')}">
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">E-Mail-Adresse</label>
+                        <input type="email" name="email" class="input" value="${esc(isEdit ? m.email : '')}">
+                    </div>
+                </div>
+
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:1">
+                        <label class="small muted">Eintrittsdatum</label>
+                        <input type="date" name="joined_at" class="input" value="${esc(isEdit && m.joined_at ? m.joined_at : '')}">
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">Austrittsdatum (optional)</label>
+                        <input type="date" name="left_at" class="input" value="${esc(isEdit && m.left_at ? m.left_at : '')}">
+                    </div>
+                    <div style="width:130px">
+                        <label class="small muted">Beitrag (€)</label>
+                        <input type="number" step="0.01" min="0" name="fee_amount" class="input" value="${isEdit ? Number(m.fee_amount || 0).toFixed(2) : '0.00'}">
+                    </div>
+                </div>
+
+                <div class="form-row" style="margin-bottom:0.75rem">
+                    <div style="flex:2">
+                        <label class="small muted">IBAN (optional)</label>
+                        <input type="text" name="iban" class="input" value="${esc(isEdit ? m.iban : '')}" placeholder="DE…">
+                    </div>
+                    <div style="flex:1">
+                        <label class="small muted">SEPA-Mandatsreferenz</label>
+                        <input type="text" name="mandate_ref" class="input" value="${esc(isEdit ? m.mandate_ref : '')}">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="small muted">Notizen / Ehrungen / Bemerkungen</label>
+                    <textarea name="notes" class="input" rows="2">${esc(isEdit ? m.notes : '')}</textarea>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">💾 Mitglied speichern</button>
+            </form>
+        `, true);
+
+        $('#member-edit-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const payload = Object.fromEntries(fd.entries());
+            if (isEdit) payload.id = m.id;
+            try {
+                await apiPost('members_save', payload);
+                closeModal();
+                toast(isEdit ? 'Mitglied aktualisiert.' : 'Mitglied angelegt.');
+                loadMembersView();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+    }
+
+    function openMemberCsvImportModal() {
+        openModal('📥 Mitgliederliste aus CSV / Excel importieren', `
+            <p class="small muted" style="margin-top:0">
+                Wählen Sie eine aus Excel exportierte <strong>.csv-Datei</strong> (Trennzeichen Semikolon <code>;</code> oder Komma <code>,</code>).<br>
+                Erkannte Spaltenköpfe u. a.: <code>Mitgliedsnummer</code>, <code>Nachname</code>, <code>Vorname</code>, <code>Geburtsdatum</code>, <code>Straße</code>, <code>PLZ</code>, <code>Ort</code>, <code>Telefon</code>, <code>E-Mail</code>, <code>Status</code>, <code>Abteilung</code>, <code>Eintrittsdatum</code>, <code>Beitrag</code>, <code>IBAN</code>, <code>Mandatsreferenz</code>, <code>Notizen</code>.
+            </p>
+            <form id="mem-csv-import-form">
+                <div class="form-group">
+                    <input type="file" id="mem-csv-file-inp" accept=".csv,text/csv" class="input" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">📥 Jetzt importieren</button>
+            </form>
+        `);
+
+        $('#mem-csv-import-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const file = $('#mem-csv-file-inp')?.files?.[0];
+            if (!file) return;
+            try {
+                const buf = await file.arrayBuffer();
+                // Try UTF-8 first; if replacement characters appear, decode as Windows-1252 (classic German Excel CSV)
+                let text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+                if (text.includes('\uFFFD')) {
+                    text = new TextDecoder('windows-1252').decode(buf);
+                }
+                const res = await apiPost('members_import_csv', { csv: text });
+                closeModal();
+                toast(`${res.imported} Mitglieder erfolgreich importiert!`);
+                loadMembersView();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+    }
+
     // "➕ Neu" Dropdown Menu & Upload Triggers
     $('#btn-new-menu-toggle')?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -4310,6 +4717,7 @@
                 const delBadges = [];
                 if (u.role !== 'admin') {
                     if (u.perm_calendar) delBadges.push('📅');
+                    if (u.perm_members) delBadges.push('🪪');
                     if (u.perm_users) delBadges.push('👥');
                     if (u.perm_groups) delBadges.push('👪');
                     if (u.perm_group_folders) delBadges.push('📂');
@@ -4433,6 +4841,7 @@
                             <div style="display:flex;gap:0.75rem;flex-wrap:wrap;font-size:0.85rem">
                                 <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_calendar" value="1"> 📅 Kalender pflegen</label>
                                 ${isFullAdmin ? `
+                                <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_members" value="1"> 🪪 Mitgliederverwaltung</label>
                                 <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_users" value="1"> 👥 Benutzer verwalten</label>
                                 <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_groups" value="1"> 👪 Gruppen verwalten</label>
                                 <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer"><input type="checkbox" name="perm_group_folders" value="1"> 📂 Gruppenordner verwalten</label>
@@ -4754,6 +5163,10 @@
                         </label>
                         ${isFullAdmin ? `
                         <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">
+                            <input type="checkbox" name="perm_members" value="1" ${u.perm_members ? 'checked' : ''}>
+                            <span>🪪 Mitgliederverwaltung (Vereinsmitglieder einsehen, pflegen & CSV-Import/Export)</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">
                             <input type="checkbox" name="perm_users" value="1" ${u.perm_users ? 'checked' : ''}>
                             <span>👥 Benutzer verwalten (Anlegen, Passwort & Quota)</span>
                         </label>
@@ -4797,6 +5210,7 @@
                     is_active: u.id === state.user.id ? true : fd.get('is_active') === '1',
                     new_password: fd.get('new_password') || '',
                     perm_calendar: fd.get('perm_calendar') === '1',
+                    perm_members: fd.get('perm_members') === '1',
                     perm_users: fd.get('perm_users') === '1',
                     perm_groups: fd.get('perm_groups') === '1',
                     perm_group_folders: fd.get('perm_group_folders') === '1',

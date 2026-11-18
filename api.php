@@ -8,6 +8,7 @@ use Cloud\CalendarManager;
 use Cloud\CryptoVault;
 use Cloud\Database;
 use Cloud\FileManager;
+use Cloud\MemberManager;
 use Cloud\ShareManager;
 use Cloud\TwoFactor;
 use Cloud\UserManager;
@@ -639,6 +640,41 @@ try {
         case 'calendar_ics':
             CalendarManager::streamEventIcs($userId, $user['role'] === 'admin', (int)($_GET['id'] ?? 0));
 
+        case 'members_list':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            jsonResponse(['ok' => true] + MemberManager::listMembers());
+
+        case 'members_save':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            $mId = isset($input['id']) && $input['id'] !== '' && $input['id'] !== null ? (int)$input['id'] : null;
+            $savedMid = MemberManager::saveMember($mId, $input);
+            jsonResponse(['ok' => true, 'id' => $savedMid]);
+
+        case 'members_delete':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            MemberManager::deleteMember((int)($input['id'] ?? 0));
+            jsonResponse(['ok' => true]);
+
+        case 'members_export_csv':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            MemberManager::streamCsvExport();
+
+        case 'members_import_csv':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            $csvText = (string)($input['csv'] ?? '');
+            $imported = MemberManager::importCsv($csvText);
+            jsonResponse(['ok' => true, 'imported' => $imported]);
+
         case 'admin_users':
             if (empty($user['has_admin_panel'])) {
                 throw new RuntimeException('Keine Administrationsberechtigung.');
@@ -703,7 +739,8 @@ try {
                 !empty($input['perm_users']),
                 !empty($input['perm_groups']),
                 !empty($input['perm_group_folders']),
-                !empty($input['perm_calendar'])
+                !empty($input['perm_calendar']),
+                !empty($input['perm_members'])
             );
             jsonResponse(['ok' => true, 'id' => $id]);
 
@@ -723,7 +760,8 @@ try {
                 isset($input['perm_users']) ? !empty($input['perm_users']) : null,
                 isset($input['perm_groups']) ? !empty($input['perm_groups']) : null,
                 isset($input['perm_group_folders']) ? !empty($input['perm_group_folders']) : null,
-                isset($input['perm_calendar']) ? !empty($input['perm_calendar']) : null
+                isset($input['perm_calendar']) ? !empty($input['perm_calendar']) : null,
+                isset($input['perm_members']) ? !empty($input['perm_members']) : null
             );
             jsonResponse(['ok' => true]);
 

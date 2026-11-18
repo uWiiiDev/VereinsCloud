@@ -230,6 +230,30 @@ class Database
             );
 
             CREATE INDEX IF NOT EXISTS idx_calendar_events_start ON calendar_events(start_at);
+
+            CREATE TABLE IF NOT EXISTS club_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_no TEXT NOT NULL DEFAULT '',
+                first_name TEXT NOT NULL DEFAULT '',
+                last_name TEXT NOT NULL DEFAULT '',
+                birth_date TEXT NULL,
+                street TEXT NOT NULL DEFAULT '',
+                zip TEXT NOT NULL DEFAULT '',
+                city TEXT NOT NULL DEFAULT '',
+                phone TEXT NOT NULL DEFAULT '',
+                email TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'Aktiv',
+                department TEXT NOT NULL DEFAULT '',
+                joined_at TEXT NULL,
+                left_at TEXT NULL,
+                fee_amount REAL NOT NULL DEFAULT 0,
+                iban TEXT NOT NULL DEFAULT '',
+                mandate_ref TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_club_members_name ON club_members(last_name, first_name);
         ");
 
         // Auto-migrate 2FA & delegated permission columns on existing users table
@@ -250,6 +274,7 @@ class Database
             'perm_groups'          => "INTEGER NOT NULL DEFAULT 0",
             'perm_group_folders'   => "INTEGER NOT NULL DEFAULT 0",
             'perm_calendar'        => "INTEGER NOT NULL DEFAULT 0",
+            'perm_members'         => "INTEGER NOT NULL DEFAULT 0",
         ];
         foreach ($addCols as $cName => $cDef) {
             if (!isset($existingCols[$cName])) {

@@ -70,7 +70,7 @@ class UserManager
         $pdo = Database::get();
         $rows = $pdo->query("
             SELECT u.id, u.username, u.display_name, u.role, u.quota_bytes, u.is_active, u.created_at,
-                   u.perm_users, u.perm_groups, u.perm_group_folders, u.perm_calendar,
+                   u.perm_users, u.perm_groups, u.perm_group_folders, u.perm_calendar, u.perm_members,
                    COALESCE((SELECT SUM(f.size_bytes) FROM files f WHERE f.owner_id = u.id), 0) AS used_bytes,
                    (SELECT COUNT(*) FROM files f WHERE f.owner_id = u.id AND f.deleted_at IS NULL) AS file_count
             FROM users u
@@ -90,6 +90,7 @@ class UserManager
             'perm_groups'        => (int)($r['perm_groups'] ?? 0) === 1,
             'perm_group_folders' => (int)($r['perm_group_folders'] ?? 0) === 1,
             'perm_calendar'      => (int)($r['perm_calendar'] ?? 0) === 1,
+            'perm_members'       => (int)($r['perm_members'] ?? 0) === 1,
             'created_at'         => $r['created_at'],
         ], $rows);
     }
@@ -104,7 +105,8 @@ class UserManager
         bool $permUsers = false,
         bool $permGroups = false,
         bool $permGroupFolders = false,
-        bool $permCalendar = false
+        bool $permCalendar = false,
+        bool $permMembers = false
     ): int {
         $username    = self::validateUsername($username);
         $displayName = trim($displayName) !== '' ? trim($displayName) : $username;
@@ -122,8 +124,8 @@ class UserManager
         }
 
         $stmt = $pdo->prepare("
-            INSERT INTO users (username, display_name, password_hash, role, quota_bytes, is_active, perm_users, perm_groups, perm_group_folders, perm_calendar, created_at)
-            VALUES (:u, :dn, :pw, :role, :quota, 1, :pu, :pg, :pgf, :pcal, datetime('now'))
+            INSERT INTO users (username, display_name, password_hash, role, quota_bytes, is_active, perm_users, perm_groups, perm_group_folders, perm_calendar, perm_members, created_at)
+            VALUES (:u, :dn, :pw, :role, :quota, 1, :pu, :pg, :pgf, :pcal, :pmem, datetime('now'))
         ");
         $stmt->execute([
             ':u'     => $username,
@@ -134,7 +136,8 @@ class UserManager
             ':pu'    => ($callerIsFullAdmin && $permUsers) ? 1 : 0,
             ':pg'    => ($callerIsFullAdmin && $permGroups) ? 1 : 0,
             ':pgf'   => ($callerIsFullAdmin && $permGroupFolders) ? 1 : 0,
-            ':pcal'  => (($callerIsFullAdmin || $permCalendar) && $permCalendar) ? 1 : 0,
+            ':pcal'  => $permCalendar ? 1 : 0,
+            ':pmem'  => ($callerIsFullAdmin && $permMembers) ? 1 : 0,
         ]);
 
         $newUserId = (int)$pdo->lastInsertId();
@@ -155,10 +158,11 @@ class UserManager
         ?bool $permUsers = null,
         ?bool $permGroups = null,
         ?bool $permGroupFolders = null,
-        ?bool $permCalendar = null
+        ?bool $permCalendar = null,
+        ?bool $permMembers = null
     ): void {
         $pdo = Database::get();
-        $tStmt = $pdo->prepare('SELECT role, perm_users, perm_groups, perm_group_folders, perm_calendar FROM users WHERE id = :id LIMIT 1');
+        $tStmt = $pdo->prepare('SELECT role, perm_users, perm_groups, perm_group_folders, perm_calendar, perm_members FROM users WHERE id = :id LIMIT 1');
         $tStmt->execute([':id' => $targetId]);
         $targetRow = $tStmt->fetch();
         if (!$targetRow) {
@@ -187,11 +191,12 @@ class UserManager
         $pg   = $callerIsFullAdmin && $permGroups !== null ? ($permGroups ? 1 : 0) : (int)$targetRow['perm_groups'];
         $pgf  = $callerIsFullAdmin && $permGroupFolders !== null ? ($permGroupFolders ? 1 : 0) : (int)$targetRow['perm_group_folders'];
         $pcal = $permCalendar !== null ? ($permCalendar ? 1 : 0) : (int)$targetRow['perm_calendar'];
+        $pmem = $callerIsFullAdmin && $permMembers !== null ? ($permMembers ? 1 : 0) : (int)$targetRow['perm_members'];
 
         $stmt = $pdo->prepare('
             UPDATE users
             SET display_name = :dn, role = :role, quota_bytes = :quota, is_active = :act,
-                perm_users = :pu, perm_groups = :pg, perm_group_folders = :pgf, perm_calendar = :pcal
+                perm_users = :pu, perm_groups = :pg, perm_group_folders = :pgf, perm_calendar = :pcal, perm_members = :pmem
             WHERE id = :id
         ');
         $stmt->execute([
@@ -203,6 +208,7 @@ class UserManager
             ':pg'    => $pg,
             ':pgf'   => $pgf,
             ':pcal'  => $pcal,
+            ':pmem'  => $pmem,
             ':id'    => $targetId,
         ]);
 
