@@ -39,6 +39,7 @@
         memberSearch: '',
         memberSortBy: 'name',
         memberSortDir: 'asc',
+        jubileeYear: new Date().getFullYear(),
     };
 
     // Apply saved theme immediately
@@ -431,6 +432,7 @@
         const showAdmin = !!(state.user.role === 'admin' || state.user.has_admin_panel);
         $('#btn-admin-modal')?.classList.toggle('hidden', !showAdmin);
         const showMembers = !!(state.user.role === 'admin' || state.user.perm_members);
+        $('#nav-members-wrap')?.classList.toggle('hidden', !showMembers);
         $('#nav-item-members')?.classList.toggle('hidden', !showMembers);
         updateQuotaBar(state.user.used_bytes, state.user.quota_bytes);
     }
@@ -646,11 +648,20 @@
         loadCurrentView();
     });
 
-    // Collapsible sub-menu under "📁 Dateien"
+    // Collapsible sub-menu under "📁 Dateien" and "🪪 Mitglieder"
     $('#btn-toggle-files-sub')?.addEventListener('click', (e) => {
         e.stopPropagation();
         const sub = $('#nav-files-sub');
         const chev = $('#btn-toggle-files-sub');
+        if (!sub || !chev) return;
+        const isCollapsed = sub.classList.toggle('hidden');
+        chev.classList.toggle('collapsed', isCollapsed);
+    });
+
+    $('#btn-toggle-members-sub')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sub = $('#nav-members-sub');
+        const chev = $('#btn-toggle-members-sub');
         if (!sub || !chev) return;
         const isCollapsed = sub.classList.toggle('hidden');
         chev.classList.toggle('collapsed', isCollapsed);
@@ -789,7 +800,7 @@
             await loadCalendarView();
             return;
         }
-        if (state.view === 'members') {
+        if (['members', 'members_stats', 'members_jubilees', 'members_fees'].includes(state.view)) {
             await loadMembersView();
             return;
         }
@@ -3514,7 +3525,14 @@
     async function loadMembersView() {
         $('#folder-write-actions').classList.add('hidden');
         $('#trash-toolbar').classList.add('hidden');
-        $('#breadcrumbs').innerHTML = `<span class="crumb active">🪪 Vereins-Mitgliederverwaltung</span>`;
+
+        const titles = {
+            members: '🪪 Mitgliederverwaltung – Mitgliederliste',
+            members_stats: '📊 Mitgliederverwaltung – Statistik & Altersstruktur',
+            members_jubilees: '🎂 Mitgliederverwaltung – Jubiläen & Geburtstage',
+            members_fees: '💶 Mitgliederverwaltung – Beiträge & SEPA-Check',
+        };
+        $('#breadcrumbs').innerHTML = `<span class="crumb active">${esc(titles[state.view] || titles.members)}</span>`;
 
         try {
             const res = await apiGet({ action: 'members_list' });
@@ -3522,10 +3540,359 @@
                 members: res.members || [],
                 departments: res.departments || [],
             };
-            renderMembersViewContent();
+            if (state.view === 'members_stats') {
+                renderMembersStatsView();
+            } else if (state.view === 'members_jubilees') {
+                renderMembersJubileesView();
+            } else if (state.view === 'members_fees') {
+                renderMembersFeesView();
+            } else {
+                renderMembersViewContent();
+            }
         } catch (err) {
             toast(err.message, 'error');
         }
+    }
+
+    function renderStatBar(label, count, total, color = 'var(--primary)', rightSuffix = '') {
+        const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+        return `
+            <div class="stat-bar-row">
+                <div class="stat-bar-labels">
+                    <span>${esc(label)}</span>
+                    <strong>${count}${rightSuffix ? ` (${esc(rightSuffix)})` : ` (${pct}%)`}</strong>
+                </div>
+                <div class="stat-bar-track">
+                    <div class="stat-bar-fill" style="width:${pct}%;background:${color}"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    // 1. "📊 Statistik" View
+    function renderMembersStatsView() {
+        const container = $('#items-container');
+        const all = cachedMembersData.members || [];
+        const currentMembers = all.filter((m) => m.status !== 'Ausgetreten');
+        const totalCurrent = currentMembers.length;
+
+        // Age brackets (Verbands-/Sportbund-Klassen)
+        const brackets = [
+            { label: '👶 Kinder (0 – 6 Jahre)', min: 0, max: 6, count: 0 },
+            { label: '🧒 Schüler (7 – 13 Jahre)', min: 7, max: 13, count: 0 },
+            { label: '🌱 Jugend (14 – 17 Jahre)', min: 14, max: 17, count: 0 },
+            { label: '🧑 Junge Erwachsene (18 – 26 Jahre)', min: 18, max: 26, count: 0 },
+            { label: '🏃 Erwachsene (27 – 40 Jahre)', min: 27, max: 40, count: 0 },
+            { label: '🏅 Erwachsene (41 – 60 Jahre)', min: 41, max: 60, count: 0 },
+            { label: '🎖️ Senioren (über 60 Jahre)', min: 61, max: 200, count: 0 },
+        ];
+        let unknownAge = 0;
+        let ageSum = 0;
+        let ageKnownCount = 0;
+
+        for (const m of currentMembers) {
+            if (m.age === null || m.age === undefined) {
+                unknownAge++;
+                continue;
+            }
+            ageSum += m.age;
+            ageKnownCount++;
+            const b = brackets.find((x) => m.age >= x.min && m.age <= x.max);
+            if (b) b.count++;
+        }
+        const avgAge = ageKnownCount > 0 ? (ageSum / ageKnownCount).toFixed(1).replace('.', ',') : '—';
+
+        const ageBarsHtml = brackets.map((b) => renderStatBar(b.label, b.count, totalCurrent, '#3b82f6')).join('')
+            + (unknownAge > 0 ? renderStatBar('❓ Ohne Geburtsdatum', unknownAge, totalCurrent, 'var(--text-muted)') : '');
+
+        // Status distribution
+        const statusCounts = [
+            { label: '✅ Aktiv', count: all.filter((m) => m.status === 'Aktiv').length, color: '#10b981' },
+            { label: '🌱 Jugend', count: all.filter((m) => m.status === 'Jugend').length, color: '#06b6d4' },
+            { label: '⏸️ Passiv', count: all.filter((m) => m.status === 'Passiv').length, color: '#f59e0b' },
+            { label: '🎖️ Ehrenmitglied', count: all.filter((m) => m.status === 'Ehrenmitglied').length, color: '#8b5cf6' },
+            { label: '🚪 Ausgetreten', count: all.filter((m) => m.status === 'Ausgetreten').length, color: '#64748b' },
+        ];
+        const statusBarsHtml = statusCounts.map((s) => renderStatBar(s.label, s.count, all.length, s.color)).join('');
+
+        // Department distribution
+        const deptMap = new Map();
+        for (const m of currentMembers) {
+            const d = m.department || 'Ohne Abteilungszuordnung';
+            deptMap.set(d, (deptMap.get(d) || 0) + 1);
+        }
+        const deptEntries = Array.from(deptMap.entries()).sort((a, b) => b[1] - a[1]);
+        const deptBarsHtml = deptEntries.map(([dName, cnt]) => renderStatBar(`🏷️ ${dName}`, cnt, totalCurrent, '#06b6d4')).join('');
+
+        // Annual Balance (Current Year & Previous Year)
+        const curY = String(new Date().getFullYear());
+        const prevY = String(new Date().getFullYear() - 1);
+        const joinedCur = all.filter((m) => (m.joined_at || '').startsWith(curY)).length;
+        const leftCur = all.filter((m) => (m.left_at || '').startsWith(curY)).length;
+        const joinedPrev = all.filter((m) => (m.joined_at || '').startsWith(prevY)).length;
+        const leftPrev = all.filter((m) => (m.left_at || '').startsWith(prevY)).length;
+
+        container.innerHTML = `
+            <div style="display:flex;gap:0.65rem;flex-wrap:wrap;margin-bottom:1rem">
+                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">👥 Aktuelle Mitglieder: <strong>${totalCurrent}</strong></span>
+                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">🎂 Durchschnittsalter: <strong>${avgAge} Jahre</strong></span>
+                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">📈 Bilanz ${curY}: <strong>+${joinedCur} Eintritte / −${leftCur} Austritte</strong></span>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stats-card">
+                    <h4>🎂 Altersverteilung (Aktive / Bestandsmeldung)</h4>
+                    ${totalCurrent > 0 ? ageBarsHtml : '<p class="muted small">Noch keine Mitglieder erfasst.</p>'}
+                </div>
+
+                <div class="stats-card">
+                    <h4>🏷️ Abteilungsgrößen</h4>
+                    ${deptBarsHtml || '<p class="muted small">Noch keine Abteilungen vergeben.</p>'}
+                </div>
+
+                <div class="stats-card">
+                    <h4>📌 Mitglieder-Status & Jahresbilanz</h4>
+                    ${statusBarsHtml}
+                    <hr style="border:none;border-top:1px solid var(--border);margin:0.5rem 0">
+                    <div class="small">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem">
+                            <span>📅 Laufendes Jahr (<strong>${curY}</strong>):</span>
+                            <span><strong style="color:var(--success)">+${joinedCur}</strong> Eintritte · <strong style="color:var(--danger)">−${leftCur}</strong> Austritte</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between">
+                            <span>📅 Vorjahr (<strong>${prevY}</strong>):</span>
+                            <span><strong>+${joinedPrev}</strong> Eintritte · <strong>−${leftPrev}</strong> Austritte</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // 2. "🎂 Jubiläen & Geburtstage" View
+    function renderMembersJubileesView() {
+        const container = $('#items-container');
+        const all = (cachedMembersData.members || []).filter((m) => m.status !== 'Ausgetreten');
+        const targetYear = Number(state.jubileeYear) || new Date().getFullYear();
+        const thisYear = new Date().getFullYear();
+
+        // Milestone Membership Jubilees in targetYear (10, 15, 20, 25, 30, 40, 50, 60, 65, 70, 75, 80 years)
+        const milestoneYears = new Set([10, 15, 20, 25, 30, 40, 50, 60, 65, 70, 75, 80]);
+        const jubilees = [];
+        for (const m of all) {
+            if (!m.joined_at || !/^\d{4}/.test(m.joined_at)) continue;
+            const joinY = Number(m.joined_at.slice(0, 4));
+            const yrs = targetYear - joinY;
+            if (milestoneYears.has(yrs)) {
+                jubilees.push({ member: m, years: yrs, joinYear: joinY });
+            }
+        }
+        jubilees.sort((a, b) => b.years - a.years || a.member.last_name.localeCompare(b.member.last_name, 'de'));
+
+        // Milestone Birthdays in targetYear (50, 60, 65, 70, 75, 80, 85, 90+)
+        const roundBirthdays = [];
+        for (const m of all) {
+            if (!m.birth_date || !/^\d{4}-\d{2}-\d{2}$/.test(m.birth_date)) continue;
+            const birthY = Number(m.birth_date.slice(0, 4));
+            const turningAge = targetYear - birthY;
+            if ([50, 60, 65, 70, 75, 80, 85].includes(turningAge) || turningAge >= 90) {
+                roundBirthdays.push({
+                    member: m,
+                    turningAge,
+                    monthDay: m.birth_date.slice(5, 10),
+                    dateInYear: `${targetYear}-${m.birth_date.slice(5, 10)}`,
+                });
+            }
+        }
+        roundBirthdays.sort((a, b) => a.monthDay.localeCompare(b.monthDay));
+
+        // Upcoming birthdays in the next 35 days (relative to today)
+        const now = new Date();
+        const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const upcomingBirthdays = [];
+        for (const m of all) {
+            if (!m.birth_date || !/^\d{4}-\d{2}-\d{2}$/.test(m.birth_date)) continue;
+            const [, bm, bd] = m.birth_date.split('-').map(Number);
+            const birthY = Number(m.birth_date.slice(0, 4));
+            let nextBday = new Date(todayZero.getFullYear(), bm - 1, bd);
+            if (nextBday < todayZero) {
+                nextBday = new Date(todayZero.getFullYear() + 1, bm - 1, bd);
+            }
+            const diffDays = Math.round((nextBday - todayZero) / 86400000);
+            if (diffDays >= 0 && diffDays <= 35) {
+                upcomingBirthdays.push({
+                    member: m,
+                    diffDays,
+                    turningAge: nextBday.getFullYear() - birthY,
+                    nextDateIso: `${nextBday.getFullYear()}-${String(bm).padStart(2, '0')}-${String(bd).padStart(2, '0')}`,
+                });
+            }
+        }
+        upcomingBirthdays.sort((a, b) => a.diffDays - b.diffDays);
+
+        const jubRows = jubilees.map((j) => `
+            <tr>
+                <td><span class="badge" style="border-color:var(--warning);color:var(--warning)">🏅 ${j.years} Jahre</span></td>
+                <td><strong>${esc(j.member.last_name)}, ${esc(j.member.first_name)}</strong></td>
+                <td class="small muted">Eintritt: ${esc(formatDeDate(j.member.joined_at, true))}</td>
+                <td class="small">${esc(j.member.department || '—')}</td>
+            </tr>
+        `).join('');
+
+        const roundBdayRows = roundBirthdays.map((b) => `
+            <tr>
+                <td><span class="badge badge-shared">🎂 ${b.turningAge}. Geburtstag</span></td>
+                <td><strong>${esc(b.member.last_name)}, ${esc(b.member.first_name)}</strong></td>
+                <td class="small">${esc(formatDeDate(b.dateInYear, true))} <span class="muted">(*${b.member.birth_date.slice(0, 4)})</span></td>
+                <td class="small muted">${esc([b.member.phone, b.member.city].filter(Boolean).join(' · ') || '—')}</td>
+            </tr>
+        `).join('');
+
+        const upcomingRows = upcomingBirthdays.map((u) => `
+            <tr>
+                <td>
+                    <strong>${u.diffDays === 0 ? '🎉 Heute!' : `in ${u.diffDays} T.`}</strong>
+                    <div class="muted small">${esc(formatDeDate(u.nextDateIso, true))}</div>
+                </td>
+                <td><strong>${esc(u.member.first_name)} ${esc(u.member.last_name)}</strong></td>
+                <td><span class="badge">wird ${u.turningAge} J.</span></td>
+            </tr>
+        `).join('');
+
+        container.innerHTML = `
+            <div class="cal-header-bar" style="margin-bottom:1rem">
+                <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+                    <span class="small muted">Auswertungsjahr für Ehrungen & runde Geburtstage:</span>
+                    <select id="jub-year-sel" class="input small" style="width:auto;font-weight:700">
+                        <option value="${thisYear - 1}" ${targetYear === thisYear - 1 ? 'selected' : ''}>${thisYear - 1}</option>
+                        <option value="${thisYear}" ${targetYear === thisYear ? 'selected' : ''}>${thisYear} (Aktuelles Jahr)</option>
+                        <option value="${thisYear + 1}" ${targetYear === thisYear + 1 ? 'selected' : ''}>${thisYear + 1} (Vorschau nächstes Jahr)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stats-card">
+                    <h4>🏅 Vereinsjubiläen / Ehrungen im Jahr ${targetYear} (${jubilees.length})</h4>
+                    <p class="small muted" style="margin:0">Mitglieder mit 10, 15, 20, 25, 30, 40, 50, 60, 65, 70+ Jahren Vereinszugehörigkeit:</p>
+                    <div class="file-table-wrap">
+                        <table class="file-table">
+                            <thead><tr><th>Jubiläum</th><th>Mitglied</th><th>Eintritt</th><th>Abteilung</th></tr></thead>
+                            <tbody>${jubRows || `<tr><td colspan="4" class="empty-cell">Keine runden Vereinsjubiläen im Jahr ${targetYear}.</td></tr>`}</tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="stats-card">
+                    <h4>🎂 Runde Geburtstage im Jahr ${targetYear} (${roundBirthdays.length})</h4>
+                    <p class="small muted" style="margin:0">Mitglieder, die ${targetYear} ihren 50., 60., 65., 70., 75., 80., 85. oder 90.+ Geburtstag feiern:</p>
+                    <div class="file-table-wrap">
+                        <table class="file-table">
+                            <thead><tr><th>Anlass</th><th>Mitglied</th><th>Datum</th><th>Kontakt / Ort</th></tr></thead>
+                            <tbody>${roundBdayRows || `<tr><td colspan="4" class="empty-cell">Keine runden Geburtstage (50+) im Jahr ${targetYear}.</td></tr>`}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-card">
+                <h4>🎈 Anstehende Geburtstage in den nächsten 35 Tagen (${upcomingBirthdays.length})</h4>
+                <div class="file-table-wrap">
+                    <table class="file-table">
+                        <thead><tr><th>Wann</th><th>Mitglied</th><th>Alter</th></tr></thead>
+                        <tbody>${upcomingRows || '<tr><td colspan="3" class="empty-cell">Keine Geburtstage in den nächsten 35 Tagen.</td></tr>'}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        $('#jub-year-sel', container)?.addEventListener('change', (e) => {
+            state.jubileeYear = Number(e.target.value);
+            renderMembersJubileesView();
+        });
+    }
+
+    // 3. "💶 Beiträge & SEPA" View
+    function renderMembersFeesView() {
+        const container = $('#items-container');
+        const all = (cachedMembersData.members || []).filter((m) => m.status !== 'Ausgetreten');
+        const memById = new Map(all.map((m) => [m.id, m]));
+
+        const payers = all.filter((m) => Number(m.fee_amount) > 0);
+        const totalFee = payers.reduce((s, m) => s + Number(m.fee_amount || 0), 0);
+        const withSepa = payers.filter((m) => m.iban && m.mandate_ref);
+        const missingSepa = payers.filter((m) => !m.iban || !m.mandate_ref);
+
+        // Breakdown by department
+        const deptFees = new Map();
+        for (const m of all) {
+            const d = m.department || 'Ohne Abteilungszuordnung';
+            const prev = deptFees.get(d) || { count: 0, fee: 0 };
+            prev.count++;
+            prev.fee += Number(m.fee_amount || 0);
+            deptFees.set(d, prev);
+        }
+        const deptRows = Array.from(deptFees.entries())
+            .sort((a, b) => b[1].fee - a[1].fee)
+            .map(([d, info]) => `
+                <tr>
+                    <td><strong>🏷️ ${esc(d)}</strong></td>
+                    <td>${info.count} Mitglieder</td>
+                    <td style="text-align:right"><strong>${info.fee.toFixed(2).replace('.', ',')} €</strong></td>
+                </tr>
+            `).join('');
+
+        const missingRows = missingSepa.map((m) => `
+            <tr>
+                <td><strong>${esc(m.last_name)}, ${esc(m.first_name)}</strong> <span class="muted small">(${esc(m.member_no || 'o. Nr.')})</span></td>
+                <td>${Number(m.fee_amount).toFixed(2).replace('.', ',')} €</td>
+                <td>
+                    ${!m.iban ? '<span class="badge" style="border-color:var(--danger);color:var(--danger)">⚠️ IBAN fehlt</span> ' : `<span class="small muted">${esc(m.iban)}</span> `}
+                    ${!m.mandate_ref ? '<span class="badge" style="border-color:var(--warning);color:var(--warning)">⚠️ Mandatsreferenz fehlt</span>' : ''}
+                </td>
+                <td style="text-align:right">
+                    <button type="button" class="btn btn-ghost btn-sm" data-fee-edit="${m.id}">✏️ Ergänzen</button>
+                </td>
+            </tr>
+        `).join('');
+
+        container.innerHTML = `
+            <div style="display:flex;gap:0.65rem;flex-wrap:wrap;margin-bottom:1rem">
+                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">💶 Gesamte Beitragssumme: <strong>${totalFee.toFixed(2).replace('.', ',')} €</strong></span>
+                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">🏦 SEPA vollständig: <strong>${withSepa.length} von ${payers.length} Beitragszahlern</strong></span>
+                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">⚠️ SEPA unvollständig / Selbstzahler: <strong>${missingSepa.length}</strong></span>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stats-card">
+                    <h4>💶 Beitragsaufkommen nach Abteilung</h4>
+                    <div class="file-table-wrap">
+                        <table class="file-table">
+                            <thead><tr><th>Abteilung</th><th>Mitglieder</th><th style="text-align:right">Summe</th></tr></thead>
+                            <tbody>${deptRows || '<tr><td colspan="3" class="empty-cell">Keine Daten vorhanden.</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="stats-card">
+                    <h4>🏦 SEPA-Vollständigkeits-Check (${missingSepa.length})</h4>
+                    <p class="small muted" style="margin:0">Beitragspflichtige Mitglieder (Beitrag &gt; 0 €), bei denen noch die IBAN oder die SEPA-Mandatsreferenz fehlt:</p>
+                    <div class="file-table-wrap">
+                        <table class="file-table">
+                            <thead><tr><th>Mitglied</th><th>Beitrag</th><th>Fehlende Angabe</th><th style="text-align:right">Aktion</th></tr></thead>
+                            <tbody>${missingRows || '<tr><td colspan="4" class="empty-cell">✅ Alle beitragspflichtigen Mitglieder haben eine vollständige IBAN & SEPA-Mandatsreferenz!</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $$('[data-fee-edit]', container).forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const m = memById.get(Number(btn.dataset.feeEdit));
+                if (m) openMemberModal(m);
+            });
+        });
     }
 
     function renderMembersViewContent() {

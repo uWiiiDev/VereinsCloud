@@ -200,10 +200,27 @@ $bootData = [
                     <span class="nav-icon">📅</span>
                     <span>Kalender</span>
                 </button>
-                <button type="button" class="nav-item hidden" id="nav-item-members" data-view="members">
-                    <span class="nav-icon">🪪</span>
-                    <span>Mitglieder</span>
-                </button>
+                <div id="nav-members-wrap" class="hidden">
+                    <button type="button" class="nav-item" id="nav-item-members" data-view="members">
+                        <span class="nav-icon">🪪</span>
+                        <span style="flex:1">Mitglieder</span>
+                        <span class="nav-chevron" id="btn-toggle-members-sub" title="Unterpunkte ein-/ausklappen">▾</span>
+                    </button>
+                    <div class="nav-sub-group" id="nav-members-sub">
+                        <button type="button" class="nav-item nav-sub-item" data-view="members_stats">
+                            <span class="nav-icon">📊</span>
+                            <span>Statistik</span>
+                        </button>
+                        <button type="button" class="nav-item nav-sub-item" data-view="members_jubilees">
+                            <span class="nav-icon">🎂</span>
+                            <span>Jubiläen & Geburtstage</span>
+                        </button>
+                        <button type="button" class="nav-item nav-sub-item" data-view="members_fees">
+                            <span class="nav-icon">💶</span>
+                            <span>Beiträge & SEPA</span>
+                        </button>
+                    </div>
+                </div>
             </nav>
 
             <div class="sidebar-spacer"></div>
