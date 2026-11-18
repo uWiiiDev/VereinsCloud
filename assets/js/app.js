@@ -4166,6 +4166,100 @@
         });
     }
 
+    // IBAN Validation (ISO 13616 / ISO 7064 Mod-97-10) & 4-Char Grouping
+    const IBAN_LENGTHS = {
+        DE: 22, AT: 20, CH: 21, LI: 21, LU: 20,
+        NL: 18, BE: 16, FR: 27, IT: 27, ES: 24,
+        PL: 28, CZ: 24, DK: 18, SE: 24, GB: 22,
+        IE: 22, PT: 25, FI: 18, NO: 15, GR: 27,
+    };
+
+    function formatIbanGroups(raw) {
+        const clean = String(raw || '').toUpperCase().replace(/[\s\-]+/g, '');
+        if (!clean) return '';
+        return clean.replace(/(.{4})/g, '$1 ').trim();
+    }
+
+    function validateIban(raw) {
+        const clean = String(raw || '').toUpperCase().replace(/[\s\-]+/g, '');
+        if (!clean) {
+            return { valid: true, empty: true, normalized: '', formatted: '', error: null };
+        }
+        const m = clean.match(/^([A-Z]{2})(\d{2})([A-Z0-9]+)$/);
+        if (!m) {
+            return {
+                valid: false,
+                empty: false,
+                normalized: clean,
+                formatted: formatIbanGroups(clean),
+                error: 'Muss mit 2 Länderbuchstaben und 2 Prüfziffern beginnen (z. B. DE…).',
+            };
+        }
+        const country = m[1];
+        const bban = m[3];
+        const expectedLen = IBAN_LENGTHS[country];
+        if (expectedLen && clean.length !== expectedLen) {
+            return {
+                valid: false,
+                empty: false,
+                normalized: clean,
+                formatted: formatIbanGroups(clean),
+                error: `IBAN für ${country} muss ${expectedLen} Stellen haben (aktuell ${clean.length}).`,
+            };
+        }
+        if (!expectedLen && (clean.length < 15 || clean.length > 34)) {
+            return {
+                valid: false,
+                empty: false,
+                normalized: clean,
+                formatted: formatIbanGroups(clean),
+                error: `Ungültige IBAN-Länge (${clean.length} Stellen).`,
+            };
+        }
+        if (['DE', 'AT', 'LU', 'BE', 'ES', 'PL', 'CZ', 'DK', 'SE', 'PT'].includes(country) && !/^\d+$/.test(bban)) {
+            return {
+                valid: false,
+                empty: false,
+                normalized: clean,
+                formatted: formatIbanGroups(clean),
+                error: `IBAN für ${country} darf nach den ersten 4 Zeichen nur Ziffern enthalten.`,
+            };
+        }
+
+        const rearranged = clean.slice(4) + clean.slice(0, 4);
+        let numeric = '';
+        for (let i = 0; i < rearranged.length; i++) {
+            const code = rearranged.charCodeAt(i);
+            if (code >= 65 && code <= 90) {
+                numeric += String(code - 55);
+            } else {
+                numeric += rearranged[i];
+            }
+        }
+        let rem = 0;
+        for (let i = 0; i < numeric.length; i++) {
+            rem = (rem * 10 + Number(numeric[i])) % 97;
+        }
+        if (rem !== 1) {
+            return {
+                valid: false,
+                empty: false,
+                normalized: clean,
+                formatted: formatIbanGroups(clean),
+                error: 'Prüfziffer ungültig (Modulo-97-Prüfung fehlgeschlagen – Zahlendreher?).',
+            };
+        }
+        return {
+            valid: true,
+            empty: false,
+            country,
+            length: clean.length,
+            normalized: clean,
+            formatted: formatIbanGroups(clean),
+            error: null,
+        };
+    }
+
     // 3. "💶 Beiträge & SEPA" View
     function renderMembersFeesView() {
         const container = $('#items-container');
@@ -4174,8 +4268,15 @@
 
         const payers = all.filter((m) => Number(m.fee_amount) > 0);
         const totalFee = payers.reduce((s, m) => s + Number(m.fee_amount || 0), 0);
-        const withSepa = payers.filter((m) => m.iban && m.mandate_ref);
-        const missingSepa = payers.filter((m) => !m.iban || !m.mandate_ref);
+        const isIbanOk = (m) => Boolean(m.iban && validateIban(m.iban).valid);
+        const withSepa = payers.filter((m) => isIbanOk(m) && m.mandate_ref);
+        const missingSepa = all.filter((m) => {
+            const hasInvalidIban = Boolean(m.iban && !validateIban(m.iban).valid);
+            if (hasInvalidIban) return true;
+            if (Number(m.fee_amount) > 0 && (!m.iban || !m.mandate_ref)) return true;
+            return false;
+        });
+        const invalidIbanCount = all.filter((m) => m.iban && !validateIban(m.iban).valid).length;
 
         // Breakdown by department
         const deptFees = new Map();
@@ -4196,25 +4297,37 @@
                 </tr>
             `).join('');
 
-        const missingRows = missingSepa.map((m) => `
+        const missingRows = missingSepa.map((m) => {
+            const ibanRes = validateIban(m.iban);
+            let ibanStatusHtml = '';
+            if (!m.iban) {
+                ibanStatusHtml = '<span class="badge" style="border-color:var(--danger);color:var(--danger)">⚠️ IBAN fehlt</span> ';
+            } else if (!ibanRes.valid) {
+                ibanStatusHtml = `<span class="badge" style="border-color:var(--danger);color:var(--danger)" title="${esc(ibanRes.error || '')}">❌ IBAN ungültig: ${esc(ibanRes.formatted)}</span> `;
+            } else {
+                ibanStatusHtml = `<span class="small muted">✅ ${esc(ibanRes.formatted)}</span> `;
+            }
+            return `
             <tr>
                 <td><strong>${esc(m.last_name)}, ${esc(m.first_name)}</strong> <span class="muted small">(${esc(m.member_no || 'o. Nr.')})</span></td>
                 <td>${Number(m.fee_amount).toFixed(2).replace('.', ',')} €</td>
                 <td>
-                    ${!m.iban ? '<span class="badge" style="border-color:var(--danger);color:var(--danger)">⚠️ IBAN fehlt</span> ' : `<span class="small muted">${esc(m.iban)}</span> `}
+                    ${ibanStatusHtml}
                     ${!m.mandate_ref ? '<span class="badge" style="border-color:var(--warning);color:var(--warning)">⚠️ Mandatsreferenz fehlt</span>' : ''}
                 </td>
                 <td style="text-align:right">
-                    <button type="button" class="btn btn-ghost btn-sm" data-fee-edit="${m.id}">✏️ Ergänzen</button>
+                    <button type="button" class="btn btn-ghost btn-sm" data-fee-edit="${m.id}">✏️ Prüfen</button>
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
 
         container.innerHTML = `
             <div style="display:flex;gap:0.65rem;flex-wrap:wrap;margin-bottom:1rem">
                 <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">💶 Gesamte Beitragssumme: <strong>${totalFee.toFixed(2).replace('.', ',')} €</strong></span>
-                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">🏦 SEPA vollständig: <strong>${withSepa.length} von ${payers.length} Beitragszahlern</strong></span>
+                <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">🏦 SEPA & IBAN gültig: <strong>${withSepa.length} von ${payers.length} Beitragszahlern</strong></span>
                 <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">⚠️ SEPA unvollständig / Selbstzahler: <strong>${missingSepa.length}</strong></span>
+                ${invalidIbanCount > 0 ? `<span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem;border-color:var(--danger);color:var(--danger)">❌ Fehlerhafte IBANs: <strong>${invalidIbanCount}</strong></span>` : ''}
             </div>
 
             <div class="stats-grid">
@@ -4229,12 +4342,12 @@
                 </div>
 
                 <div class="stats-card">
-                    <h4>🏦 SEPA-Vollständigkeits-Check (${missingSepa.length})</h4>
-                    <p class="small muted" style="margin:0">Beitragspflichtige Mitglieder (Beitrag &gt; 0 €), bei denen noch die IBAN oder die SEPA-Mandatsreferenz fehlt:</p>
+                    <h4>🏦 SEPA-Vollständigkeits- & IBAN-Prüfung (${missingSepa.length})</h4>
+                    <p class="small muted" style="margin:0">Mitglieder mit fehlender/ungültiger IBAN (ISO-7064-Modulo-97-Prüfung) oder fehlender SEPA-Mandatsreferenz:</p>
                     <div class="file-table-wrap">
                         <table class="file-table">
-                            <thead><tr><th>Mitglied</th><th>Beitrag</th><th>Fehlende Angabe</th><th style="text-align:right">Aktion</th></tr></thead>
-                            <tbody>${missingRows || '<tr><td colspan="4" class="empty-cell">✅ Alle beitragspflichtigen Mitglieder haben eine vollständige IBAN & SEPA-Mandatsreferenz!</td></tr>'}</tbody>
+                            <thead><tr><th>Mitglied</th><th>Beitrag</th><th>IBAN / Mandats-Status</th><th style="text-align:right">Aktion</th></tr></thead>
+                            <tbody>${missingRows || '<tr><td colspan="4" class="empty-cell">✅ Alle beitragspflichtigen Mitglieder haben eine gültige IBAN & SEPA-Mandatsreferenz!</td></tr>'}</tbody>
                         </table>
                     </div>
                 </div>
@@ -4556,8 +4669,9 @@
 
                 <div class="form-row" style="margin-bottom:0.75rem">
                     <div style="flex:2">
-                        <label class="small muted">IBAN (optional)</label>
-                        <input type="text" name="iban" class="input" value="${esc(isEdit ? m.iban : '')}" placeholder="DE…">
+                        <label class="small muted">IBAN (optional, mit Prüfziffern-Check)</label>
+                        <input type="text" name="iban" id="mem-iban-inp" class="input" value="${esc(isEdit ? formatIbanGroups(m.iban) : '')}" placeholder="DE00 0000 0000 0000 0000 00" autocomplete="off">
+                        <div id="mem-iban-status" class="small" style="margin-top:0.25rem"></div>
                     </div>
                     <div style="flex:1">
                         <label class="small muted">SEPA-Mandatsreferenz</label>
@@ -4574,10 +4688,42 @@
             </form>
         `, true);
 
+        const ibanInp = $('#mem-iban-inp');
+        const ibanStatus = $('#mem-iban-status');
+        const updateIbanFeedback = () => {
+            if (!ibanInp || !ibanStatus) return;
+            const res = validateIban(ibanInp.value);
+            if (res.empty) {
+                ibanInp.style.borderColor = '';
+                ibanStatus.innerHTML = `<span class="muted">Leer lassen bei Selbstzahlern / Überweisung</span>`;
+            } else if (res.valid) {
+                ibanInp.style.borderColor = 'var(--success)';
+                ibanStatus.innerHTML = `<span style="color:var(--success);font-weight:600">✅ Gültige IBAN (${esc(res.country)} · ${res.length} Stellen · Prüfziffer OK)</span>`;
+            } else {
+                ibanInp.style.borderColor = 'var(--danger)';
+                ibanStatus.innerHTML = `<span style="color:var(--danger);font-weight:600">❌ ${esc(res.error)}</span>`;
+            }
+        };
+        ibanInp?.addEventListener('input', updateIbanFeedback);
+        ibanInp?.addEventListener('blur', () => {
+            if (ibanInp.value.trim() !== '') {
+                ibanInp.value = formatIbanGroups(ibanInp.value);
+            }
+            updateIbanFeedback();
+        });
+        updateIbanFeedback();
+
         $('#member-edit-form')?.addEventListener('submit', async (e) => {
             e.preventDefault();
             const fd = new FormData(e.target);
             const payload = Object.fromEntries(fd.entries());
+            const ibanCheck = validateIban(payload.iban || '');
+            if (!ibanCheck.valid) {
+                toast(`Ungültige IBAN: ${ibanCheck.error}`, 'error');
+                ibanInp?.focus();
+                return;
+            }
+            payload.iban = ibanCheck.normalized;
             if (isEdit) payload.id = m.id;
             try {
                 await apiPost('members_save', payload);

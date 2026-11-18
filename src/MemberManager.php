@@ -38,6 +38,9 @@ class MemberManager
                 $departments[$dept] = true;
             }
 
+            $rawIban = (string)($r['iban'] ?? '');
+            $ibanCheck = $rawIban !== '' ? self::validateIban($rawIban) : null;
+
             $members[] = [
                 'id'          => (int)$r['id'],
                 'member_no'   => $r['member_no'] ?? '',
@@ -56,7 +59,9 @@ class MemberManager
                 'left_at'     => $r['left_at'],
                 'years'       => $years,
                 'fee_amount'  => (float)($r['fee_amount'] ?? 0),
-                'iban'        => $r['iban'] ?? '',
+                'iban'        => $rawIban,
+                'iban_valid'  => $ibanCheck ? $ibanCheck['valid'] : null,
+                'iban_error'  => $ibanCheck ? $ibanCheck['error'] : null,
                 'mandate_ref' => $r['mandate_ref'] ?? '',
                 'notes'       => $r['notes'] ?? '',
                 'updated_at'  => $r['updated_at'],
@@ -89,6 +94,85 @@ class MemberManager
         return null;
     }
 
+    public static function validateIban(?string $raw): array
+    {
+        $clean = strtoupper((string)preg_replace('/[\s\-]+/', '', (string)$raw));
+        if ($clean === '') {
+            return ['valid' => true, 'normalized' => '', 'error' => null];
+        }
+
+        if (!preg_match('/^([A-Z]{2})(\d{2})([A-Z0-9]+)$/', $clean, $m)) {
+            return [
+                'valid'      => false,
+                'normalized' => $clean,
+                'error'      => 'Ungültiges Format (muss mit 2 Länderbuchstaben und 2 Prüfziffern beginnen, z. B. DE…).',
+            ];
+        }
+
+        $country = $m[1];
+        $bban    = $m[3];
+        $lengths = [
+            'DE' => 22, 'AT' => 20, 'CH' => 21, 'LI' => 21, 'LU' => 20,
+            'NL' => 18, 'BE' => 16, 'FR' => 27, 'IT' => 27, 'ES' => 24,
+            'PL' => 28, 'CZ' => 24, 'DK' => 18, 'SE' => 24, 'GB' => 22,
+            'IE' => 22, 'PT' => 25, 'FI' => 18, 'NO' => 15, 'GR' => 27,
+        ];
+
+        $len = strlen($clean);
+        if (isset($lengths[$country])) {
+            if ($len !== $lengths[$country]) {
+                return [
+                    'valid'      => false,
+                    'normalized' => $clean,
+                    'error'      => sprintf('IBAN für %s muss %d Stellen lang sein (aktuell %d Stellen).', $country, $lengths[$country], $len),
+                ];
+            }
+        } elseif ($len < 15 || $len > 34) {
+            return [
+                'valid'      => false,
+                'normalized' => $clean,
+                'error'      => sprintf('Ungültige IBAN-Länge (%d Stellen).', $len),
+            ];
+        }
+
+        if (in_array($country, ['DE', 'AT', 'LU', 'BE', 'ES', 'PL', 'CZ', 'DK', 'SE', 'PT'], true) && !ctype_digit($bban)) {
+            return [
+                'valid'      => false,
+                'normalized' => $clean,
+                'error'      => sprintf('IBAN für %s darf nach den ersten 4 Zeichen nur Ziffern enthalten.', $country),
+            ];
+        }
+
+        // ISO 7064 Mod 97-10 check
+        $rearranged = substr($clean, 4) . substr($clean, 0, 4);
+        $numeric = '';
+        $rLen = strlen($rearranged);
+        for ($i = 0; $i < $rLen; $i++) {
+            $ch = $rearranged[$i];
+            if ($ch >= 'A' && $ch <= 'Z') {
+                $numeric .= (string)(ord($ch) - 55);
+            } else {
+                $numeric .= $ch;
+            }
+        }
+
+        $rem = 0;
+        $nLen = strlen($numeric);
+        for ($i = 0; $i < $nLen; $i++) {
+            $rem = ($rem * 10 + (int)$numeric[$i]) % 97;
+        }
+
+        if ($rem !== 1) {
+            return [
+                'valid'      => false,
+                'normalized' => $clean,
+                'error'      => 'IBAN-Prüfziffer ungültig (Modulo-97-Prüfung fehlgeschlagen – Zahlendreher?).',
+            ];
+        }
+
+        return ['valid' => true, 'normalized' => $clean, 'error' => null];
+    }
+
     public static function saveMember(?int $id, array $input): int
     {
         $firstName = mb_substr(trim((string)($input['first_name'] ?? '')), 0, 100);
@@ -111,7 +195,11 @@ class MemberManager
         $leftAt     = self::normalizeDate(isset($input['left_at']) ? (string)$input['left_at'] : null);
         $feeRaw     = str_replace(',', '.', trim((string)($input['fee_amount'] ?? '0')));
         $feeAmount  = is_numeric($feeRaw) ? round((float)$feeRaw, 2) : 0.0;
-        $iban       = strtoupper(str_replace(' ', '', mb_substr(trim((string)($input['iban'] ?? '')), 0, 40)));
+        $ibanInfo   = self::validateIban(isset($input['iban']) ? (string)$input['iban'] : '');
+        if (!$ibanInfo['valid']) {
+            throw new RuntimeException('Ungültige IBAN: ' . $ibanInfo['error']);
+        }
+        $iban       = $ibanInfo['normalized'];
         $mandateRef = mb_substr(trim((string)($input['mandate_ref'] ?? '')), 0, 80);
         $notes      = mb_substr(trim((string)($input['notes'] ?? '')), 0, 2000);
 
