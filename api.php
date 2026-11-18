@@ -640,6 +640,14 @@ try {
         case 'calendar_ics':
             CalendarManager::streamEventIcs($userId, $user['role'] === 'admin', (int)($_GET['id'] ?? 0));
 
+        case 'calendar_year':
+            $year = (int)($_GET['year'] ?? date('Y'));
+            $data = CalendarManager::listYearEvents($userId, $user['role'] === 'admin', !empty($user['perm_calendar']), $year);
+            jsonResponse(['ok' => true] + $data);
+
+        case 'calendar_ics_all':
+            CalendarManager::streamAllEventsIcs($userId, $user['role'] === 'admin');
+
         case 'members_list':
             if (empty($user['perm_members'])) {
                 throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');

@@ -40,6 +40,12 @@
         memberSortBy: 'name',
         memberSortDir: 'asc',
         jubileeYear: new Date().getFullYear(),
+        calendarShowBirthdays: true,
+        calendarWeekOffset: 0,
+        calendarHallFilter: 'all',
+        calendarOnlyHallCat: false,
+        calendarPlanYear: new Date().getFullYear(),
+        calendarHideWeeklyInYear: false,
     };
 
     // Apply saved theme immediately
@@ -667,6 +673,15 @@
         chev.classList.toggle('collapsed', isCollapsed);
     });
 
+    $('#btn-toggle-calendar-sub')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sub = $('#nav-calendar-sub');
+        const chev = $('#btn-toggle-calendar-sub');
+        if (!sub || !chev) return;
+        const isCollapsed = sub.classList.toggle('hidden');
+        chev.classList.toggle('collapsed', isCollapsed);
+    });
+
     // Sidebar Navigation & Drag-and-Drop Targets (Tresor, Papierkorb, Hauptordner)
     $$('.sidebar-nav .nav-item').forEach((btn) => {
         const navView = btn.dataset.view || 'files';
@@ -798,6 +813,14 @@
         }
         if (state.view === 'calendar') {
             await loadCalendarView();
+            return;
+        }
+        if (state.view === 'calendar_week') {
+            await loadCalendarWeekView();
+            return;
+        }
+        if (state.view === 'calendar_year') {
+            await loadCalendarYearView();
             return;
         }
         if (['members', 'members_stats', 'members_jubilees', 'members_fees'].includes(state.view)) {
@@ -3181,6 +3204,7 @@
             state.calendarMonth = ym;
             const rawEvents = res.events || [];
             const rawUpcoming = res.upcoming || [];
+            const birthdays = res.birthdays || [];
             const groups = res.groups || [];
             const canManageCal = !!res.can_manage;
 
@@ -3233,10 +3257,19 @@
                     `;
                 }).join('');
 
+                const dayBdays = state.calendarShowBirthdays
+                    ? birthdays.filter((b) => b.date === isoDate).map((b) => `
+                        <div class="cal-event-pill" style="background:#ec4899" title="Geburtstag: ${esc(b.name)} (${b.turning_age} Jahre)">
+                            🎂 ${esc(b.name)} (${b.turning_age})
+                        </div>
+                    `).join('')
+                    : '';
+
                 cellsHtml += `
                     <div class="cal-day ${isOtherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''}" data-cal-date="${isoDate}">
                         <span class="cal-day-num">${cellDate.getDate()}</span>
                         ${pills}
+                        ${dayBdays}
                     </div>
                 `;
             }
@@ -3276,7 +3309,11 @@
                         <button type="button" class="btn btn-ghost btn-sm" id="btn-cal-next" title="Nächster Monat">▶</button>
                         <button type="button" class="btn btn-ghost btn-sm" id="btn-cal-today">Heute</button>
                     </div>
-                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+                    <div style="display:flex;align-items:center;gap:0.65rem;flex-wrap:wrap">
+                        <label class="small" style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer" title="Mitglieder-Geburtstage im Kalender einblenden">
+                            <input type="checkbox" id="chk-cal-birthdays" ${state.calendarShowBirthdays ? 'checked' : ''}>
+                            <span>🎂 Geburtstage</span>
+                        </label>
                         <select id="cal-cat-filter" class="input small" style="width:auto;padding:0.35rem 0.65rem">${filterCatOpts}</select>
                         ${canManageCal ? `<button type="button" class="btn btn-primary btn-sm" id="btn-cal-new">➕ Neuer Termin</button>` : ''}
                     </div>
@@ -3311,6 +3348,10 @@
             });
             $('#cal-cat-filter', container)?.addEventListener('change', (e) => {
                 state.calendarColorFilter = e.target.value;
+                loadCalendarView();
+            });
+            $('#chk-cal-birthdays', container)?.addEventListener('change', (e) => {
+                state.calendarShowBirthdays = e.target.checked;
                 loadCalendarView();
             });
             $('#btn-cal-new', container)?.addEventListener('click', () => {
@@ -3512,11 +3553,324 @@
                 });
                 closeModal();
                 toast(isEdit ? 'Termin aktualisiert.' : 'Termin eingetragen.');
-                loadCalendarView();
+                if (state.view === 'calendar_week') {
+                    loadCalendarWeekView();
+                } else if (state.view === 'calendar_year') {
+                    loadCalendarYearView();
+                } else {
+                    loadCalendarView();
+                }
             } catch (err) {
                 toast(err.message, 'error');
             }
         });
+    }
+
+    // 1. "🏟️ Hallen- & Wochenplan" View (Weekly Monday–Sunday Schedule + Overlap Detection)
+    async function loadCalendarWeekView() {
+        $('#folder-write-actions').classList.add('hidden');
+        $('#trash-toolbar').classList.add('hidden');
+        $('#breadcrumbs').innerHTML = `<span class="crumb active">🏟️ Kalender – Hallen- & Wochenplan</span>`;
+
+        // Calculate Monday of the target week (based on state.calendarWeekOffset)
+        const now = new Date();
+        const dow = (now.getDay() + 6) % 7; // 0 = Monday .. 6 = Sunday
+        const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow + (state.calendarWeekOffset * 7));
+        const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+
+        const toIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const weekMonthYm = toIso(monday).slice(0, 7);
+
+        try {
+            const res = await apiGet({ action: 'calendar_list', month: weekMonthYm });
+            const rawEvents = res.events || [];
+            const groups = res.groups || [];
+            const canManageCal = !!res.can_manage;
+
+            // Collect all distinct non-empty locations/halls across events
+            const locationsSet = new Set();
+            rawEvents.forEach((ev) => {
+                const loc = (ev.location || '').trim();
+                if (loc) locationsSet.add(loc);
+            });
+            const locations = Array.from(locationsSet).sort((a, b) => a.localeCompare(b, 'de'));
+
+            const hallFilter = state.calendarHallFilter || 'all';
+            const onlyHallCat = !!state.calendarOnlyHallCat;
+
+            const filteredEvents = rawEvents.filter((ev) => {
+                if (onlyHallCat && ev.color !== '#06b6d4') return false;
+                if (hallFilter !== 'all' && (ev.location || '').trim() !== hallFilter) return false;
+                return true;
+            });
+
+            const dayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+            const todayIso = toIso(new Date());
+            const eventsByKey = new Map();
+            let totalConflicts = 0;
+
+            let colsHtml = '';
+            for (let i = 0; i < 7; i++) {
+                const dayDate = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+                const isoDate = toIso(dayDate);
+                const isToday = isoDate === todayIso;
+
+                const dayEvs = filteredEvents.filter((ev) => {
+                    const sDay = (ev.start_at || '').slice(0, 10);
+                    const eDay = ev.end_at ? ev.end_at.slice(0, 10) : sDay;
+                    return isoDate >= sDay && isoDate <= eDay;
+                });
+
+                // Detect time overlaps in the same location/hall on this day
+                const conflictSet = new Set();
+                for (let a = 0; a < dayEvs.length; a++) {
+                    for (let b = a + 1; b < dayEvs.length; b++) {
+                        const evA = dayEvs[a];
+                        const evB = dayEvs[b];
+                        const locA = (evA.location || '').trim().toLowerCase();
+                        const locB = (evB.location || '').trim().toLowerCase();
+                        if (!locA || locA !== locB) continue;
+
+                        const sA = evA.all_day ? '00:00' : (evA.start_at.slice(11, 16) || '00:00');
+                        const eA = evA.all_day ? '23:59' : ((evA.end_at && evA.end_at.slice(11, 16)) || '23:59');
+                        const sB = evB.all_day ? '00:00' : (evB.start_at.slice(11, 16) || '00:00');
+                        const eB = evB.all_day ? '23:59' : ((evB.end_at && evB.end_at.slice(11, 16)) || '23:59');
+
+                        if (sA < eB && sB < eA) {
+                            conflictSet.add(a);
+                            conflictSet.add(b);
+                        }
+                    }
+                }
+                if (conflictSet.size > 0) {
+                    totalConflicts += conflictSet.size;
+                }
+
+                const cardsHtml = dayEvs.map((ev, idx) => {
+                    const evKey = `wk_${ev.id}_${ev.start_at}_${idx}`;
+                    eventsByKey.set(evKey, ev);
+                    const isConflict = conflictSet.has(idx);
+                    const timeStr = ev.all_day
+                        ? 'Ganztägig'
+                        : `${ev.start_at.slice(11, 16) || ''}${ev.end_at && ev.end_at.length >= 16 ? ' – ' + ev.end_at.slice(11, 16) : ''} Uhr`;
+                    return `
+                        <div class="week-slot-card ${isConflict ? 'conflict' : ''}" style="border-left-color:${esc(isConflict ? 'var(--danger)' : ev.color)}" data-cal-ev="${esc(evKey)}">
+                            <div style="font-weight:700;color:var(--text)">${esc(timeStr)}</div>
+                            <div style="font-weight:600;margin:0.15rem 0">${esc(ev.title)}</div>
+                            ${ev.location ? `<div class="muted small">🏟️ ${esc(ev.location)}</div>` : ''}
+                            ${ev.group_name ? `<div class="muted small">👪 ${esc(ev.group_name)}</div>` : ''}
+                            ${isConflict ? `<div style="color:var(--danger);font-weight:700;margin-top:0.2rem">⚠️ Hallen-Überschneidung!</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
+
+                colsHtml += `
+                    <div class="week-day-col ${isToday ? 'today' : ''}">
+                        <div class="week-day-header">
+                            <span>${dayNames[i]}</span>
+                            <span class="muted small">${String(dayDate.getDate()).padStart(2, '0')}.${String(dayDate.getMonth() + 1).padStart(2, '0')}.</span>
+                        </div>
+                        <div class="week-day-body" data-week-date="${isoDate}">
+                            ${cardsHtml || `<div class="muted small" style="text-align:center;margin:auto 0;opacity:0.5">Frei</div>`}
+                        </div>
+                    </div>
+                `;
+            }
+
+            const locOpts = [
+                `<option value="all" ${hallFilter === 'all' ? 'selected' : ''}>🏟️ Alle Hallen / Orte</option>`,
+                ...locations.map((l) => `<option value="${esc(l)}" ${hallFilter === l ? 'selected' : ''}>📍 ${esc(l)}</option>`),
+            ].join('');
+
+            const rangeLabel = `${formatDeDate(toIso(monday), true)} – ${formatDeDate(toIso(sunday), true)}`;
+            const container = $('#items-container');
+            container.innerHTML = `
+                <div class="cal-header-bar">
+                    <div class="cal-nav-group">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-wk-prev">◀ Vorherige</button>
+                        <div class="cal-month-title" style="min-width:210px">${esc(rangeLabel)}</div>
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-wk-next">Nächste ▶</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-wk-today">Aktuelle Woche</button>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.65rem;flex-wrap:wrap">
+                        <label class="small" style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer">
+                            <input type="checkbox" id="chk-wk-only-hall" ${onlyHallCat ? 'checked' : ''}>
+                            <span>🏟️ Nur Kategorie „Hallenbelegung“</span>
+                        </label>
+                        <select id="wk-loc-filter" class="input small" style="width:auto">${locOpts}</select>
+                        ${canManageCal ? `<button type="button" class="btn btn-primary btn-sm" id="btn-wk-new">➕ Belegung / Termin</button>` : ''}
+                    </div>
+                </div>
+
+                ${totalConflicts > 0 ? `
+                <div style="background:rgba(239,68,68,0.14);border:1px solid var(--danger);color:var(--text);padding:0.65rem 0.9rem;border-radius:10px;margin-bottom:0.9rem;font-size:0.88rem">
+                    ⚠️ <strong>Achtung:</strong> In dieser Woche gibt es zeitliche Überschneidungen am selben Ort / in derselben Halle (rot markiert).
+                </div>` : ''}
+
+                <div class="week-grid">${colsHtml}</div>
+            `;
+
+            $('#btn-wk-prev', container)?.addEventListener('click', () => {
+                state.calendarWeekOffset--;
+                loadCalendarWeekView();
+            });
+            $('#btn-wk-next', container)?.addEventListener('click', () => {
+                state.calendarWeekOffset++;
+                loadCalendarWeekView();
+            });
+            $('#btn-wk-today', container)?.addEventListener('click', () => {
+                state.calendarWeekOffset = 0;
+                loadCalendarWeekView();
+            });
+            $('#chk-wk-only-hall', container)?.addEventListener('change', (e) => {
+                state.calendarOnlyHallCat = e.target.checked;
+                loadCalendarWeekView();
+            });
+            $('#wk-loc-filter', container)?.addEventListener('change', (e) => {
+                state.calendarHallFilter = e.target.value;
+                loadCalendarWeekView();
+            });
+            $('#btn-wk-new', container)?.addEventListener('click', () => {
+                state.calendarColorFilter = '#06b6d4';
+                openCalendarEventModal(null, toIso(monday), groups);
+            });
+
+            $$('[data-cal-ev]', container).forEach((el) => {
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const ev = eventsByKey.get(el.dataset.calEv);
+                    if (ev) openCalendarDetailModal(ev, groups);
+                });
+            });
+
+            if (canManageCal) {
+                $$('[data-week-date]', container).forEach((colBody) => {
+                    colBody.addEventListener('click', (e) => {
+                        if (e.target.closest('[data-cal-ev]')) return;
+                        openCalendarEventModal(null, colBody.dataset.weekDate, groups);
+                    });
+                });
+            }
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    }
+
+    // 2. "🗓️ Jahres-Terminplan" View (Annual Club Schedule & Print/ICS Export)
+    async function loadCalendarYearView() {
+        $('#folder-write-actions').classList.add('hidden');
+        $('#trash-toolbar').classList.add('hidden');
+        $('#breadcrumbs').innerHTML = `<span class="crumb active">🗓️ Kalender – Jahres-Terminplan</span>`;
+
+        const targetYear = Number(state.calendarPlanYear) || new Date().getFullYear();
+        const thisYear = new Date().getFullYear();
+
+        try {
+            const res = await apiGet({ action: 'calendar_year', year: targetYear });
+            const rawEvents = res.events || [];
+            const groups = res.groups || [];
+            const canManageCal = !!res.can_manage;
+
+            const hideWeekly = !!state.calendarHideWeeklyInYear;
+            const events = rawEvents.filter((ev) => {
+                if (hideWeekly && ['weekly', 'biweekly'].includes(ev.recurrence)) return false;
+                return true;
+            });
+
+            const eventsByKey = new Map();
+            const byMonth = Array.from({ length: 12 }, () => []);
+            events.forEach((ev, idx) => {
+                const mIdx = Number((ev.start_at || '').slice(5, 7)) - 1;
+                if (mIdx >= 0 && mIdx < 12) {
+                    const k = `yr_${ev.id}_${ev.start_at}_${idx}`;
+                    eventsByKey.set(k, ev);
+                    byMonth[mIdx].push({ ev, key: k });
+                }
+            });
+
+            const monthsHtml = byMonth.map((list, mIdx) => {
+                if (list.length === 0) return '';
+                const rows = list.map(({ ev, key }) => `
+                    <tr data-cal-ev="${esc(key)}" style="cursor:pointer">
+                        <td style="width:185px;white-space:nowrap">
+                            <strong>${esc(formatDeDate(ev.start_at, ev.all_day))}</strong>
+                            ${ev.end_at && ev.end_at.slice(0, 10) !== ev.start_at.slice(0, 10) ? `<div class="muted small">bis ${esc(formatDeDate(ev.end_at, ev.all_day))}</div>` : ''}
+                        </td>
+                        <td>
+                            <span class="cal-color-dot" style="background:${esc(ev.color)};display:inline-block;margin-right:0.35rem;vertical-align:middle"></span>
+                            <strong>${esc(ev.title)}</strong>
+                            ${ev.recurrence && ev.recurrence !== 'none' ? `<span class="muted small"> (${esc(calRecurrenceLabel(ev.recurrence, null))})</span>` : ''}
+                        </td>
+                        <td class="small">${esc(ev.location || '—')}</td>
+                        <td class="small">
+                            <span class="badge">${esc(calCategoryLabel(ev.color))}</span>
+                            ${ev.group_name ? ` <span class="badge">👪 ${esc(ev.group_name)}</span>` : ''}
+                        </td>
+                    </tr>
+                `).join('');
+
+                return `
+                    <div class="stats-card" style="margin-bottom:0.9rem">
+                        <h4>🗓️ ${esc(MONTH_NAMES_DE[mIdx])} ${targetYear} (${list.length})</h4>
+                        <div class="file-table-wrap">
+                            <table class="file-table">
+                                <thead><tr><th>Datum / Uhrzeit</th><th>Termin</th><th>Ort / Halle</th><th>Kategorie / Gruppe</th></tr></thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const container = $('#items-container');
+            container.innerHTML = `
+                <div class="cal-header-bar">
+                    <div style="display:flex;align-items:center;gap:0.65rem;flex-wrap:wrap">
+                        <span class="small muted">Jahr:</span>
+                        <select id="yr-plan-sel" class="input small" style="width:auto;font-weight:700">
+                            <option value="${thisYear - 1}" ${targetYear === thisYear - 1 ? 'selected' : ''}>${thisYear - 1}</option>
+                            <option value="${thisYear}" ${targetYear === thisYear ? 'selected' : ''}>${thisYear}</option>
+                            <option value="${thisYear + 1}" ${targetYear === thisYear + 1 ? 'selected' : ''}>${thisYear + 1}</option>
+                        </select>
+                        <label class="small" style="display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer">
+                            <input type="checkbox" id="chk-yr-hide-weekly" ${hideWeekly ? 'checked' : ''}>
+                            <span>🔄 Wöchentliche Serien/Trainings für Aushang ausblenden</span>
+                        </label>
+                    </div>
+                    <div style="display:flex;gap:0.45rem;flex-wrap:wrap">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-yr-print">🖨️ Drucken / Aushang</button>
+                        <a class="btn btn-ghost btn-sm" href="api.php?action=calendar_ics_all">📲 Gesamt-Kalender (.ics)</a>
+                        ${canManageCal ? `<button type="button" class="btn btn-primary btn-sm" id="btn-yr-new">➕ Neuer Termin</button>` : ''}
+                    </div>
+                </div>
+
+                ${monthsHtml || `<div class="empty-state"><h3>Keine Termine im Jahr ${targetYear}</h3><p class="muted">Für dieses Jahr sind noch keine Termine eingetragen.</p></div>`}
+            `;
+
+            $('#yr-plan-sel', container)?.addEventListener('change', (e) => {
+                state.calendarPlanYear = Number(e.target.value);
+                loadCalendarYearView();
+            });
+            $('#chk-yr-hide-weekly', container)?.addEventListener('change', (e) => {
+                state.calendarHideWeeklyInYear = e.target.checked;
+                loadCalendarYearView();
+            });
+            $('#btn-yr-print', container)?.addEventListener('click', () => {
+                window.print();
+            });
+            $('#btn-yr-new', container)?.addEventListener('click', () => {
+                openCalendarEventModal(null, `${targetYear}-01-01`, groups);
+            });
+
+            $$('[data-cal-ev]', container).forEach((tr) => {
+                tr.addEventListener('click', () => {
+                    const ev = eventsByKey.get(tr.dataset.calEv);
+                    if (ev) openCalendarDetailModal(ev, groups);
+                });
+            });
+        } catch (err) {
+            toast(err.message, 'error');
+        }
     }
 
     // Club Member Management ("🪪 Mitglieder") View

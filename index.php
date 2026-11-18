@@ -198,8 +198,19 @@ $bootData = [
                 <div class="nav-section-label">Verein</div>
                 <button type="button" class="nav-item" data-view="calendar">
                     <span class="nav-icon">📅</span>
-                    <span>Kalender</span>
+                    <span style="flex:1">Kalender</span>
+                    <span class="nav-chevron" id="btn-toggle-calendar-sub" title="Unterpunkte ein-/ausklappen">▾</span>
                 </button>
+                <div class="nav-sub-group" id="nav-calendar-sub">
+                    <button type="button" class="nav-item nav-sub-item" data-view="calendar_week">
+                        <span class="nav-icon">🏟️</span>
+                        <span>Hallen- & Wochenplan</span>
+                    </button>
+                    <button type="button" class="nav-item nav-sub-item" data-view="calendar_year">
+                        <span class="nav-icon">🗓️</span>
+                        <span>Jahres-Terminplan</span>
+                    </button>
+                </div>
                 <div id="nav-members-wrap" class="hidden">
                     <button type="button" class="nav-item" id="nav-item-members" data-view="members">
                         <span class="nav-icon">🪪</span>

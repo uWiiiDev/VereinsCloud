@@ -54,13 +54,98 @@ class CalendarManager
             'name' => $g['name'],
         ], $pdo->query('SELECT id, name FROM groups ORDER BY name COLLATE NOCASE ASC')->fetchAll());
 
+        // Member birthdays falling into [$rangeStart, $rangeEnd]
+        $birthdays = self::expandBirthdaysInWindow($pdo, $rangeStart, $rangeEnd);
+
         return [
             'month'      => $monthYm,
             'can_manage' => $isAdmin || $canManageCalendar,
             'events'     => $monthEvents,
             'upcoming'   => $upcoming,
+            'birthdays'  => $birthdays,
             'groups'     => $groups,
         ];
+    }
+
+    public static function listYearEvents(int $userId, bool $isAdmin, bool $canManageCalendar, int $year): array
+    {
+        if ($year < 2000 || $year > 2100) {
+            $year = (int)date('Y');
+        }
+        $rangeStart = sprintf('%04d-01-01', $year);
+        $rangeEnd   = sprintf('%04d-12-31', $year);
+
+        $pdo = Database::get();
+        $accessSql = $isAdmin
+            ? '1=1'
+            : '(e.group_id IS NULL OR e.creator_id = :uid OR EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = e.group_id AND gm.user_id = :uid2))';
+
+        $stmt = $pdo->prepare("
+            SELECT e.*, u.display_name AS creator_name, g.name AS group_name
+            FROM calendar_events e
+            JOIN users u ON u.id = e.creator_id
+            LEFT JOIN groups g ON g.id = e.group_id
+            WHERE ($accessSql)
+            ORDER BY e.start_at ASC, e.id ASC
+        ");
+        $params = [];
+        if (!$isAdmin) {
+            $params[':uid']  = $userId;
+            $params[':uid2'] = $userId;
+        }
+        $stmt->execute($params);
+        $rawEvents = $stmt->fetchAll();
+
+        $yearEvents = self::expandEventsInWindow($rawEvents, $rangeStart, $rangeEnd, $userId, $isAdmin, $canManageCalendar);
+        $groups = array_map(fn($g) => [
+            'id'   => (int)$g['id'],
+            'name' => $g['name'],
+        ], $pdo->query('SELECT id, name FROM groups ORDER BY name COLLATE NOCASE ASC')->fetchAll());
+
+        return [
+            'year'       => $year,
+            'can_manage' => $isAdmin || $canManageCalendar,
+            'events'     => $yearEvents,
+            'groups'     => $groups,
+        ];
+    }
+
+    private static function expandBirthdaysInWindow(PDO $pdo, string $winStartDate, string $winEndDate): array
+    {
+        $rows = $pdo->query("
+            SELECT id, first_name, last_name, birth_date, department
+            FROM club_members
+            WHERE status != 'Ausgetreten' AND birth_date IS NOT NULL AND birth_date != ''
+        ")->fetchAll();
+
+        $startY = (int)substr($winStartDate, 0, 4);
+        $endY   = (int)substr($winEndDate, 0, 4);
+        $out    = [];
+
+        foreach ($rows as $r) {
+            $bd = (string)$r['birth_date'];
+            if (!preg_match('/^(\d{4})-(\d{2}-\d{2})$/', $bd, $m)) {
+                continue;
+            }
+            $birthYear = (int)$m[1];
+            $md = $m[2];
+            for ($y = $startY; $y <= $endY; $y++) {
+                $iso = sprintf('%04d-%s', $y, $md);
+                if ($iso >= $winStartDate && $iso <= $winEndDate) {
+                    $turning = $y - $birthYear;
+                    $name = trim($r['first_name'] . ' ' . $r['last_name']);
+                    $out[] = [
+                        'member_id'   => (int)$r['id'],
+                        'name'        => $name,
+                        'date'        => $iso,
+                        'turning_age' => $turning,
+                        'department'  => $r['department'] ?? '',
+                    ];
+                }
+            }
+        }
+        usort($out, fn($a, $b) => strcmp($a['date'], $b['date']));
+        return $out;
     }
 
     /**
@@ -351,6 +436,90 @@ class CalendarManager
 
         header('Content-Type: text/calendar; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $safeName . '.ics"');
+        header('Content-Length: ' . strlen($ics));
+        echo $ics;
+        exit;
+    }
+
+    public static function streamAllEventsIcs(int $userId, bool $isAdmin): never
+    {
+        $pdo = Database::get();
+        $accessSql = $isAdmin
+            ? '1=1'
+            : '(e.group_id IS NULL OR e.creator_id = :uid OR EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = e.group_id AND gm.user_id = :uid2))';
+
+        $stmt = $pdo->prepare("SELECT e.* FROM calendar_events e WHERE ($accessSql) ORDER BY e.start_at ASC");
+        $params = [];
+        if (!$isAdmin) {
+            $params[':uid']  = $userId;
+            $params[':uid2'] = $userId;
+        }
+        $stmt->execute($params);
+        $events = $stmt->fetchAll();
+
+        $escIcs = fn(string $s) => str_replace(["\r\n", "\n", "\r", ',', ';'], ['\n', '\n', '', '\,', '\;'], $s);
+
+        $lines = [
+            'BEGIN:VCALENDAR',
+            'VERSION:2.0',
+            'PRODID:-//VereinsCloud//DE',
+            'CALSCALE:GREGORIAN',
+            'X-WR-CALNAME:Vereinskalender',
+        ];
+
+        foreach ($events as $ev) {
+            $allDay = (int)$ev['all_day'] === 1;
+            $startTs = strtotime((string)$ev['start_at']) ?: time();
+            $endTs   = !empty($ev['end_at']) ? (strtotime((string)$ev['end_at']) ?: $startTs) : ($allDay ? $startTs : $startTs + 3600);
+
+            if ($allDay) {
+                $dtStart = 'DTSTART;VALUE=DATE:' . date('Ymd', $startTs);
+                $dtEnd   = 'DTEND;VALUE=DATE:' . date('Ymd', strtotime('+1 day', $endTs));
+            } else {
+                $dtStart = 'DTSTART:' . date('Ymd\THis', $startTs);
+                $dtEnd   = 'DTEND:' . date('Ymd\THis', $endTs);
+            }
+
+            $rec = $ev['recurrence'] ?? 'none';
+            $rrule = '';
+            if ($rec !== 'none' && $rec !== '') {
+                $freq = match ($rec) {
+                    'weekly'   => 'FREQ=WEEKLY',
+                    'biweekly' => 'FREQ=WEEKLY;INTERVAL=2',
+                    'monthly'  => 'FREQ=MONTHLY',
+                    'yearly'   => 'FREQ=YEARLY',
+                    default    => '',
+                };
+                if ($freq !== '') {
+                    if (!empty($ev['recurrence_until'])) {
+                        $uTs = strtotime((string)$ev['recurrence_until'] . ' 23:59:59');
+                        if ($uTs) {
+                            $freq .= ';UNTIL=' . gmdate('Ymd\THis\Z', $uTs);
+                        }
+                    }
+                    $rrule = 'RRULE:' . $freq;
+                }
+            }
+
+            $lines[] = 'BEGIN:VEVENT';
+            $lines[] = 'UID:vereinscloud-event-' . $ev['id'] . '@' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+            $lines[] = 'DTSTAMP:' . gmdate('Ymd\THis\Z');
+            $lines[] = $dtStart;
+            $lines[] = $dtEnd;
+            if ($rrule !== '') {
+                $lines[] = $rrule;
+            }
+            $lines[] = 'SUMMARY:' . $escIcs((string)$ev['title']);
+            $lines[] = 'LOCATION:' . $escIcs((string)$ev['location']);
+            $lines[] = 'DESCRIPTION:' . $escIcs((string)$ev['description']);
+            $lines[] = 'END:VEVENT';
+        }
+
+        $lines[] = 'END:VCALENDAR';
+        $ics = implode("\r\n", $lines) . "\r\n";
+
+        header('Content-Type: text/calendar; charset=utf-8');
+        header('Content-Disposition: attachment; filename="vereinskalender-' . date('Y') . '.ics"');
         header('Content-Length: ' . strlen($ics));
         echo $ics;
         exit;
