@@ -306,6 +306,53 @@ html[data-theme="light"] .alert-success {
     background: var(--bg-active);
 }
 
+.nav-chevron {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    transition: transform 0.15s;
+}
+
+.nav-chevron:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+}
+
+.nav-chevron.collapsed {
+    transform: rotate(-90deg);
+}
+
+.nav-sub-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.12rem;
+    margin-left: 1.15rem;
+    padding-left: 0.55rem;
+    border-left: 1px solid var(--border);
+    margin-bottom: 0.2rem;
+}
+
+.nav-sub-item {
+    padding: 0.42rem 0.65rem;
+    font-size: 0.84rem;
+    color: var(--text-muted);
+}
+
+.nav-sub-item:hover {
+    color: var(--text);
+}
+
+.nav-section-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    padding: 0.65rem 0.75rem 0.2rem;
+    user-select: none;
+}
+
 .sidebar-spacer {
     flex: 1;
 }

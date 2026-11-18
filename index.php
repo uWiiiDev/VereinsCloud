@@ -173,8 +173,29 @@ $bootData = [
             <nav class="sidebar-nav">
                 <button type="button" class="nav-item active" data-view="files">
                     <span class="nav-icon">📁</span>
-                    <span>Dateien</span>
+                    <span style="flex:1">Dateien</span>
+                    <span class="nav-chevron" id="btn-toggle-files-sub" title="Unterpunkte ein-/ausklappen">▾</span>
                 </button>
+                <div class="nav-sub-group" id="nav-files-sub">
+                    <button type="button" class="nav-item nav-sub-item" data-view="shared">
+                        <span class="nav-icon">👥</span>
+                        <span>Geteilt</span>
+                    </button>
+                    <button type="button" class="nav-item nav-sub-item" data-view="my_shares">
+                        <span class="nav-icon">🔗</span>
+                        <span>Freigaben</span>
+                    </button>
+                    <button type="button" class="nav-item nav-sub-item" data-view="vault">
+                        <span class="nav-icon">🔒</span>
+                        <span>Tresor</span>
+                    </button>
+                    <button type="button" class="nav-item nav-sub-item" data-view="trash">
+                        <span class="nav-icon">🗑️</span>
+                        <span>Papierkorb</span>
+                    </button>
+                </div>
+
+                <div class="nav-section-label">Verein</div>
                 <button type="button" class="nav-item" data-view="calendar">
                     <span class="nav-icon">📅</span>
                     <span>Kalender</span>
@@ -182,22 +203,6 @@ $bootData = [
                 <button type="button" class="nav-item hidden" id="nav-item-members" data-view="members">
                     <span class="nav-icon">🪪</span>
                     <span>Mitglieder</span>
-                </button>
-                <button type="button" class="nav-item" data-view="shared">
-                    <span class="nav-icon">👥</span>
-                    <span>Geteilt</span>
-                </button>
-                <button type="button" class="nav-item" data-view="my_shares">
-                    <span class="nav-icon">🔗</span>
-                    <span>Freigaben</span>
-                </button>
-                <button type="button" class="nav-item" data-view="vault">
-                    <span class="nav-icon">🔒</span>
-                    <span>Tresor</span>
-                </button>
-                <button type="button" class="nav-item" data-view="trash">
-                    <span class="nav-icon">🗑️</span>
-                    <span>Papierkorb</span>
                 </button>
             </nav>
 

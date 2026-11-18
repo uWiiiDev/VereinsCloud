@@ -646,6 +646,16 @@
         loadCurrentView();
     });
 
+    // Collapsible sub-menu under "📁 Dateien"
+    $('#btn-toggle-files-sub')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sub = $('#nav-files-sub');
+        const chev = $('#btn-toggle-files-sub');
+        if (!sub || !chev) return;
+        const isCollapsed = sub.classList.toggle('hidden');
+        chev.classList.toggle('collapsed', isCollapsed);
+    });
+
     // Sidebar Navigation & Drag-and-Drop Targets (Tresor, Papierkorb, Hauptordner)
     $$('.sidebar-nav .nav-item').forEach((btn) => {
         const navView = btn.dataset.view || 'files';
