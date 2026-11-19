@@ -1698,7 +1698,13 @@
                 </button>
             `;
 
-            if (!isFolder && (isOfficeSheetFile(item.name) || isOfficeDocFile(item.name) || item.category === 'text')) {
+            if (!isFolder && isOfficePresentationFile(item.name)) {
+                itemsHtml += `
+                    <button type="button" class="dropdown-item" data-ctx-act="pptx_play">
+                        📽️ Präsentation starten
+                    </button>
+                `;
+            } else if (!isFolder && (isOfficeSheetFile(item.name) || isOfficeDocFile(item.name) || item.category === 'text')) {
                 itemsHtml += `
                     <button type="button" class="dropdown-item" data-ctx-act="office_edit">
                         ✏️ In Office bearbeiten
@@ -1811,6 +1817,8 @@
                     }
                 } else if (act === 'office_edit') {
                     openFileModal(item);
+                } else if (act === 'pptx_play') {
+                    launchOfficePresentation(item);
                 } else if (act === 'copy') {
                     setClipboard('copy', targetItems);
                 } else if (act === 'cut') {
@@ -2528,6 +2536,11 @@
         return ['xlsx', 'xls', 'ods', 'csv'].includes(ext);
     }
 
+    function isOfficePresentationFile(name = '') {
+        const ext = name.toLowerCase().split('.').pop();
+        return ['pptx', 'ppt', 'odp'].includes(ext);
+    }
+
     async function launchOfficeSheet(file) {
         try {
             toast('Lade Tabelle in Office…');
@@ -2812,6 +2825,171 @@
         });
     }
 
+    // --- Office 3: Presentation Viewer & Stage (Powerpoint PPTX) ---
+    async function launchOfficePresentation(file) {
+        try {
+            toast('Lade Präsentation…');
+            const dlResp = await fetch(`api.php?action=download&id=${file.id}`);
+            const buf = await dlResp.arrayBuffer();
+            await openOfficePresentationViewer(file.id, file.name, buf);
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    }
+
+    async function openOfficePresentationViewer(fileId, fileName, arrayBufferData) {
+        let slides = [];
+        if (typeof JSZip !== 'undefined' && arrayBufferData) {
+            try {
+                const zip = await JSZip.loadAsync(arrayBufferData);
+                const slideFiles = [];
+                zip.forEach((relPath) => {
+                    const m = relPath.match(/^ppt\/slides\/slide(\d+)\.xml$/);
+                    if (m) {
+                        slideFiles.push({ num: parseInt(m[1], 10), path: relPath });
+                    }
+                });
+                slideFiles.sort((a, b) => a.num - b.num);
+
+                for (const sf of slideFiles) {
+                    const xmlText = await zip.file(sf.path).async('string');
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(xmlText, 'text/xml');
+                    const paragraphs = Array.from(doc.querySelectorAll('a\\:p, p'));
+                    const pTexts = paragraphs.map((p) => {
+                        const texts = Array.from(p.querySelectorAll('a\\:t, t')).map((t) => t.textContent.trim()).filter(Boolean);
+                        return texts.join(' ');
+                    }).filter(Boolean);
+
+                    const title = pTexts[0] || `Folie ${sf.num}`;
+                    const contentList = pTexts.slice(1);
+                    slides.push({
+                        number: sf.num,
+                        title,
+                        bodyLines: contentList,
+                    });
+                }
+            } catch (err) {
+                console.warn('PPTX parse error:', err);
+            }
+        }
+
+        if (slides.length === 0) {
+            slides = [
+                {
+                    number: 1,
+                    title: fileName.replace(/\.[^/.]+$/, ''),
+                    bodyLines: ['Präsentation konnte geöffnet werden.', 'Hinweis: Diese Folie dient als Platzhalter oder die Präsentation enthält vorwiegend eingebettete Bildgrafiken.'],
+                },
+            ];
+        }
+
+        let currentSlideIdx = 0;
+
+        openModal(`📽️ Präsentation: ${fileName}`, `
+            <div class="pptx-viewer-wrap">
+                <div class="office-editor-toolbar">
+                    <div style="font-weight:600;font-size:0.9rem;display:flex;align-items:center;gap:0.5rem">
+                        <span>📽️ ${esc(fileName)}</span>
+                        <span class="badge" id="pptx-slide-counter">Folie 1 von ${slides.length}</span>
+                    </div>
+                    <div style="display:flex;gap:0.4rem;align-items:center;margin-left:auto">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-pptx-prev" title="Vorherige Folie (Pfeil links)">◀ Zurück</button>
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-pptx-next" title="Nächste Folie (Pfeil rechts / Leertaste)">Weiter ▶</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-pptx-fullscreen" title="Im Vollbild präsentieren">⛶ Vollbild</button>
+                        <a class="btn btn-ghost btn-sm" href="api.php?action=download&id=${fileId}">⬇️ Herunterladen</a>
+                    </div>
+                </div>
+
+                <div class="pptx-main-area">
+                    <div class="pptx-thumb-nav" id="pptx-thumb-list">
+                        ${slides.map((s, idx) => `
+                            <div class="pptx-thumb-item ${idx === 0 ? 'active' : ''}" data-slide-idx="${idx}">
+                                <strong>Folie ${s.number}</strong>
+                                <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.title)}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="pptx-stage-wrap" id="pptx-stage">
+                        <div class="pptx-slide-canvas" id="pptx-canvas">
+                            <div class="pptx-slide-title" id="pptx-slide-title"></div>
+                            <div class="pptx-slide-body" id="pptx-slide-body"></div>
+                            <div class="pptx-slide-num-badge" id="pptx-slide-badge"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `, 'fullscreen');
+
+        function renderSlide(idx) {
+            currentSlideIdx = Math.max(0, Math.min(idx, slides.length - 1));
+            const s = slides[currentSlideIdx];
+            const titleEl = $('#pptx-slide-title');
+            const bodyEl = $('#pptx-slide-body');
+            const badgeEl = $('#pptx-slide-badge');
+            const counterEl = $('#pptx-slide-counter');
+
+            if (titleEl) titleEl.textContent = s.title;
+            if (badgeEl) badgeEl.textContent = `${s.number} / ${slides.length}`;
+            if (counterEl) counterEl.textContent = `Folie ${currentSlideIdx + 1} von ${slides.length}`;
+
+            if (bodyEl) {
+                if (s.bodyLines.length > 0) {
+                    bodyEl.innerHTML = s.bodyLines.map((line) => `<p style="margin: 0.6rem 0;">• ${esc(line)}</p>`).join('');
+                } else {
+                    bodyEl.innerHTML = '<p class="muted" style="margin-top:2rem;font-style:italic">Titel- oder Inhaltsfolie</p>';
+                }
+            }
+
+            $$('#pptx-thumb-list .pptx-thumb-item').forEach((item, i) => {
+                item.classList.toggle('active', i === currentSlideIdx);
+                if (i === currentSlideIdx) {
+                    item.scrollIntoView({ block: 'nearest' });
+                }
+            });
+        }
+
+        renderSlide(0);
+
+        $('#btn-pptx-prev')?.addEventListener('click', () => renderSlide(currentSlideIdx - 1));
+        $('#btn-pptx-next')?.addEventListener('click', () => renderSlide(currentSlideIdx + 1));
+
+        $$('#pptx-thumb-list [data-slide-idx]').forEach((el) => {
+            el.addEventListener('click', () => {
+                renderSlide(Number(el.dataset.slideIdx));
+            });
+        });
+
+        // Fullscreen Beamer Mode
+        $('#btn-pptx-fullscreen')?.addEventListener('click', () => {
+            const stage = $('#pptx-stage');
+            if (stage) {
+                if (!document.fullscreenElement) {
+                    stage.requestFullscreen?.();
+                } else {
+                    document.exitFullscreen?.();
+                }
+            }
+        });
+
+        // Keyboard Navigation (Arrow Keys / Spacebar)
+        const onPptxKeyDown = (e) => {
+            if ($('#modal-backdrop').classList.contains('hidden')) {
+                document.removeEventListener('keydown', onPptxKeyDown);
+                return;
+            }
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
+                e.preventDefault();
+                renderSlide(currentSlideIdx + 1);
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+                e.preventDefault();
+                renderSlide(currentSlideIdx - 1);
+            }
+        };
+        document.addEventListener('keydown', onPptxKeyDown);
+    }
+
     function openTextEditorModal(fileId, fileName, content, readOnly = false) {
         openModal(fileId ? `Textdatei: ${fileName}` : 'Neue Textdatei erstellen', `
             <form id="text-editor-form">
@@ -2875,6 +3053,12 @@
             return;
         }
 
+        // Check if file is an Office Presentation (PPTX, PPT, ODP)
+        if (isOfficePresentationFile(file.name)) {
+            await launchOfficePresentation(file);
+            return;
+        }
+
         if (file.category === 'text') {
             try {
                 const res = await apiGet({ action: 'read_text', id: file.id });
@@ -2908,18 +3092,25 @@
         }
 
         const canEditOffice = isOfficeSheetFile(file.name) || isOfficeDocFile(file.name) || file.category === 'text';
+        const isPresentation = isOfficePresentationFile(file.name);
 
         openModal(file.name, `
             ${previewHtml}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem;flex-wrap:wrap;gap:0.5rem">
                 <span class="muted small">${formatBytes(file.size_bytes)} · ${esc(file.mime_type)}</span>
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                    ${isPresentation ? `<button type="button" class="btn btn-primary" id="modal-btn-pptx-play">📽️ Präsentation starten</button>` : ''}
                     ${canEditOffice ? `<button type="button" class="btn btn-primary" id="modal-btn-office-edit">✏️ In Office bearbeiten</button>` : ''}
                     <button type="button" class="btn btn-ghost" id="modal-btn-vault">🔒 Verschlüsseln</button>
                     <a class="btn btn-ghost" href="${dlUrl}">⬇️ Herunterladen</a>
                 </div>
             </div>
         `, file.category === 'pdf' || file.category === 'image' || file.category === 'video');
+
+        $('#modal-btn-pptx-play')?.addEventListener('click', async () => {
+            closeModal();
+            await launchOfficePresentation(file);
+        });
 
         $('#modal-btn-office-edit')?.addEventListener('click', async () => {
             closeModal();
