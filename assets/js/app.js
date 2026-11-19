@@ -1698,6 +1698,14 @@
                 </button>
             `;
 
+            if (!isFolder && (isOfficeSheetFile(item.name) || isOfficeDocFile(item.name) || item.category === 'text')) {
+                itemsHtml += `
+                    <button type="button" class="dropdown-item" data-ctx-act="office_edit">
+                        ✏️ In Office bearbeiten
+                    </button>
+                `;
+            }
+
             // Paste options when clipboard has items
             if (state.clipboard && state.clipboard.items?.length > 0 && ['owner', 'write'].includes(state.permission)) {
                 const clipCount = state.clipboard.items.length;
@@ -1801,6 +1809,8 @@
                     } else {
                         openFileModal(item);
                     }
+                } else if (act === 'office_edit') {
+                    openFileModal(item);
                 } else if (act === 'copy') {
                     setClipboard('copy', targetItems);
                 } else if (act === 'cut') {
@@ -2816,8 +2826,29 @@
             return;
         }
 
-        // Check if file is an Office Document (HTML doc or text)
-        if (file.name.toLowerCase().endsWith('.html') || file.name.toLowerCase().endsWith('.htm')) {
+        // Check if file is an Office Document (.docx / .doc / HTML doc)
+        const lowerName = file.name.toLowerCase();
+        if (lowerName.endsWith('.docx') || lowerName.endsWith('.doc')) {
+            try {
+                toast('Lade Word-Dokument in Office…');
+                const dlResp = await fetch(`api.php?action=download&id=${file.id}`);
+                const buf = await dlResp.arrayBuffer();
+                let htmlContent = '';
+                if (typeof mammoth !== 'undefined') {
+                    const result = await mammoth.convertToHtml({ arrayBuffer: buf });
+                    htmlContent = result.value || '';
+                } else {
+                    htmlContent = '<p>Vorschau für Word-Dokument wird vorbereitet…</p>';
+                }
+                const readOnly = !['owner', 'write'].includes(file.permission || state.permission);
+                openOfficeDocEditor(file.id, file.name, htmlContent, readOnly);
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+            return;
+        }
+
+        if (lowerName.endsWith('.html') || lowerName.endsWith('.htm')) {
             try {
                 const res = await apiGet({ action: 'read_text', id: file.id });
                 const readOnly = !['owner', 'write'].includes(res.permission);

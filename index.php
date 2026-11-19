@@ -374,6 +374,7 @@ $bootData = [
     <script src="assets/vendor/xlsx.full.min.js"></script>
     <script src="assets/vendor/xspreadsheet.js"></script>
     <script src="assets/vendor/xspreadsheet.de.js"></script>
+    <script src="assets/vendor/mammoth.browser.min.js"></script>
     <script src="assets/vendor/quill.min.js"></script>
     <script src="assets/js/app.js?v=<?= @filemtime(__DIR__ . '/assets/js/app.js') ?: 1 ?>"></script>
 </body>
