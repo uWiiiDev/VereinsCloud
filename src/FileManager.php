@@ -1280,6 +1280,49 @@ class FileManager
         return self::storeAssembledFile($access['effective_owner_id'], $folderId, $name, $tmp);
     }
 
+    public static function saveBinaryBase64File(int $userId, ?int $folderId, ?int $fileId, string $rawName, string $b64Data): array
+    {
+        $rawBytes = base64_decode($b64Data, true);
+        if ($rawBytes === false) {
+            throw new RuntimeException('Ungültige Base64-Daten.');
+        }
+
+        if ($fileId !== null && $fileId > 0) {
+            $access = self::resolveFileAccess($userId, $fileId);
+            if (!$access || !in_array($access['permission'], ['owner', 'write'], true)) {
+                throw new RuntimeException('Keine Schreibberechtigung für diese Datei.');
+            }
+            $file = $access['file'];
+            if ((int)$file['is_encrypted'] === 1) {
+                throw new RuntimeException('Verschlüsselte Dateien müssen vor dem Bearbeiten entschlüsselt werden.');
+            }
+            $ownerId = (int)$file['owner_id'];
+            $diffBytes = strlen($rawBytes) - (int)$file['size_bytes'];
+            if ($diffBytes > 0 && !Auth::canFitBytes($ownerId, $diffBytes)) {
+                throw new RuntimeException('Speicherplatz-Quota überschritten.');
+            }
+            $filePath = Database::FILES_DIR . '/' . basename($file['storage_name']);
+            if (file_put_contents($filePath, $rawBytes, LOCK_EX) === false) {
+                throw new RuntimeException('Datei konnte nicht gespeichert werden.');
+            }
+            $newSize = strlen($rawBytes);
+            $sha256  = hash('sha256', $rawBytes);
+            $pdo = Database::get();
+            $pdo->prepare("UPDATE files SET size_bytes = :s, sha256 = :sha, updated_at = datetime('now') WHERE id = :id")
+                ->execute([':s' => $newSize, ':sha' => $sha256, ':id' => $fileId]);
+            return ['id' => $fileId, 'name' => $file['name'], 'size_bytes' => $newSize];
+        }
+
+        $name = self::sanitizeName($rawName);
+        if ($name === '') {
+            throw new RuntimeException('Ungültiger Dateiname.');
+        }
+        $access = self::canWriteFolder($userId, $folderId);
+        $tmp = Database::CHUNKS_DIR . '/bin_' . bin2hex(random_bytes(8)) . '.tmp';
+        file_put_contents($tmp, $rawBytes);
+        return self::storeAssembledFile($access['effective_owner_id'], $folderId, $name, $tmp);
+    }
+
     /**
      * Inspects a .zip file and returns its entries.
      */

@@ -44,6 +44,8 @@ $bootData = [
     <link rel="manifest" href="manifest.php">
     <link rel="icon" type="image/png" href="manifest.php?icon=192">
     <link rel="apple-touch-icon" href="manifest.php?icon=192">
+    <link rel="stylesheet" href="assets/vendor/xspreadsheet.css">
+    <link rel="stylesheet" href="assets/vendor/quill.snow.css">
     <link rel="stylesheet" href="assets/css/app.css?v=<?= @filemtime(__DIR__ . '/assets/css/app.css') ?: 1 ?>">
 </head>
 <body>
@@ -287,7 +289,9 @@ $bootData = [
                             <button type="button" class="dropdown-item" id="menu-upload-folder">📂 Ordner hochladen</button>
                             <div class="dropdown-divider"></div>
                             <button type="button" class="dropdown-item" id="btn-new-folder">📁 Neuer Ordner</button>
-                            <button type="button" class="dropdown-item" id="btn-new-text">📝 Neue Textdatei</button>
+                            <button type="button" class="dropdown-item" id="btn-new-office-doc">📄 Neues Word-/Text-Dokument</button>
+                            <button type="button" class="dropdown-item" id="btn-new-office-sheet">📊 Neue Excel-Tabelle (.xlsx)</button>
+                            <button type="button" class="dropdown-item" id="btn-new-text">📝 Neue einfache Notizdatei</button>
                         </div>
                     </div>
                 </div>
@@ -367,6 +371,10 @@ $bootData = [
     <script>
         window.CLOUD_BOOT = <?= json_encode($bootData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     </script>
+    <script src="assets/vendor/xlsx.full.min.js"></script>
+    <script src="assets/vendor/xspreadsheet.js"></script>
+    <script src="assets/vendor/xspreadsheet.de.js"></script>
+    <script src="assets/vendor/quill.min.js"></script>
     <script src="assets/js/app.js?v=<?= @filemtime(__DIR__ . '/assets/js/app.js') ?: 1 ?>"></script>
 </body>
 </html>

@@ -269,6 +269,14 @@ try {
             $saved    = FileManager::saveTextFile($userId, $folderId, $fileId, $name, $content);
             jsonResponse(['ok' => true, 'file' => $saved]);
 
+        case 'save_binary_base64':
+            $folderId = isset($input['folder_id']) && $input['folder_id'] !== '' && $input['folder_id'] !== null ? (int)$input['folder_id'] : null;
+            $fileId   = isset($input['file_id']) && $input['file_id'] !== '' && $input['file_id'] !== null ? (int)$input['file_id'] : null;
+            $name     = (string)($input['name'] ?? '');
+            $b64      = (string)($input['base64'] ?? '');
+            $saved    = FileManager::saveBinaryBase64File($userId, $folderId, $fileId, $name, $b64);
+            jsonResponse(['ok' => true, 'file' => $saved]);
+
         case 'create_folder':
             $parentId = isset($input['parent_id']) && $input['parent_id'] !== '' && $input['parent_id'] !== null ? (int)$input['parent_id'] : null;
             $name     = (string)($input['name'] ?? '');

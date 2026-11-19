@@ -308,17 +308,19 @@
     }
 
     // Modal System
-    function openModal(title, htmlContent, large = false) {
+    function openModal(title, htmlContent, mode = false) {
         const backdrop = $('#modal-backdrop');
         const dialog = $('#modal-dialog');
         $('#modal-title').textContent = title;
         $('#modal-body').innerHTML = htmlContent;
-        dialog.classList.toggle('modal-lg', large);
+        dialog.classList.toggle('modal-lg', mode === true || mode === 'large');
+        dialog.classList.toggle('modal-fullscreen', mode === 'fullscreen');
         backdrop.classList.remove('hidden');
     }
 
     function closeModal() {
         $('#modal-backdrop').classList.add('hidden');
+        $('#modal-dialog').classList.remove('modal-lg', 'modal-fullscreen');
         $('#modal-body').innerHTML = '';
     }
 
@@ -2497,6 +2499,259 @@
         openTextEditorModal(null, 'notiz.md', '');
     });
 
+    $('#btn-new-office-doc')?.addEventListener('click', () => {
+        openOfficeDocEditor(null, 'Neues Dokument.html', '<p>Hier Vereinsdokument oder Protokoll verfassen…</p>');
+    });
+
+    $('#btn-new-office-sheet')?.addEventListener('click', () => {
+        openOfficeSheetEditor(null, 'Tabelle.xlsx', null);
+    });
+
+    // Helper: Detect Office document types
+    function isOfficeDocFile(name = '') {
+        const ext = name.toLowerCase().split('.').pop();
+        return ['doc', 'docx', 'odt', 'rtf', 'html', 'htm'].includes(ext);
+    }
+
+    function isOfficeSheetFile(name = '') {
+        const ext = name.toLowerCase().split('.').pop();
+        return ['xlsx', 'xls', 'ods', 'csv'].includes(ext);
+    }
+
+    // --- Office 1: Rich-Text Document Editor (Word / Docs Alternative) ---
+    async function openOfficeDocEditor(fileId, fileName, initialHtml = '', readOnly = false) {
+        openModal(fileId ? `📄 Word-/Text-Dokument: ${fileName}` : '📄 Neues Word-/Text-Dokument', `
+            <div class="office-editor-wrap">
+                <div class="office-editor-toolbar">
+                    ${!fileId ? `
+                        <div style="display:flex;align-items:center;gap:0.4rem;flex:1;max-width:320px">
+                            <span class="small muted">Dateiname:</span>
+                            <input type="text" id="office-doc-filename" class="input small" value="${esc(fileName)}" required>
+                        </div>
+                    ` : `
+                        <div style="font-weight:600;font-size:0.9rem">
+                            📄 ${esc(fileName)}
+                        </div>
+                    `}
+                    <div style="display:flex;gap:0.4rem;align-items:center;margin-left:auto">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-office-doc-print">🖨️ Drucken / PDF</button>
+                        ${fileId ? `<a class="btn btn-ghost btn-sm" href="api.php?action=download&id=${fileId}">⬇️ Herunterladen</a>` : ''}
+                        ${!readOnly ? `<button type="button" class="btn btn-primary btn-sm" id="btn-office-doc-save">💾 Speichern</button>` : ''}
+                    </div>
+                </div>
+                <div class="office-editor-body" style="display:flex;flex-direction:column">
+                    <div id="office-quill-editor" style="flex:1"></div>
+                </div>
+            </div>
+        `, 'fullscreen');
+
+        const editorContainer = $('#office-quill-editor');
+        if (!editorContainer || typeof Quill === 'undefined') {
+            toast('Quill-Editor konnte nicht geladen werden.', 'error');
+            return;
+        }
+
+        const quill = new Quill(editorContainer, {
+            theme: 'snow',
+            readOnly,
+            modules: {
+                toolbar: readOnly ? false : [
+                    [{ header: [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    [{ color: [] }, { background: [] }],
+                    [{ list: 'ordered' }, { list: 'bullet' }, { align: [] }],
+                    ['blockquote', 'code-block'],
+                    ['link', 'image', 'clean'],
+                ],
+            },
+        });
+
+        quill.root.innerHTML = initialHtml || '';
+
+        $('#btn-office-doc-print')?.addEventListener('click', () => {
+            const printWin = window.open('', '_blank');
+            if (!printWin) return;
+            printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(fileName)}</title><style>
+                @page { size: A4; margin: 20mm; }
+                body { font-family: system-ui, -apple-system, sans-serif; font-size: 11pt; line-height: 1.6; color: #0f172a; margin: 0; }
+                img { max-width: 100%; height: auto; }
+                table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+                th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+                @media print { body { padding: 0; } }
+            </style></head><body>${quill.root.innerHTML}</body></html>`);
+            printWin.document.close();
+            setTimeout(() => { printWin.print(); }, 250);
+        });
+
+        $('#btn-office-doc-save')?.addEventListener('click', async () => {
+            const nameInp = $('#office-doc-filename');
+            const targetName = fileId ? fileName : (nameInp ? nameInp.value.trim() : fileName);
+            if (!targetName) {
+                toast('Bitte Dateinamen eingeben.', 'error');
+                return;
+            }
+            const htmlContent = quill.root.innerHTML;
+            try {
+                await apiPost('save_text', {
+                    folder_id: state.currentFolderId,
+                    file_id: fileId,
+                    name: targetName.endsWith('.html') || targetName.endsWith('.htm') ? targetName : `${targetName}.html`,
+                    content: htmlContent,
+                });
+                closeModal();
+                toast('Dokument erfolgreich gespeichert.');
+                loadCurrentView();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+    }
+
+    // --- Office 2: Spreadsheet Editor (Excel / XLSX Alternative) ---
+    async function openOfficeSheetEditor(fileId, fileName, arrayBufferData = null, readOnly = false) {
+        openModal(fileId ? `📊 Excel-Tabelle: ${fileName}` : '📊 Neue Excel-Tabelle (.xlsx)', `
+            <div class="office-editor-wrap">
+                <div class="office-editor-toolbar">
+                    ${!fileId ? `
+                        <div style="display:flex;align-items:center;gap:0.4rem;flex:1;max-width:320px">
+                            <span class="small muted">Dateiname:</span>
+                            <input type="text" id="office-sheet-filename" class="input small" value="${esc(fileName)}" required>
+                        </div>
+                    ` : `
+                        <div style="font-weight:600;font-size:0.9rem">
+                            📊 ${esc(fileName)}
+                        </div>
+                    `}
+                    <div style="display:flex;gap:0.4rem;align-items:center;margin-left:auto">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-office-sheet-dl-xlsx">📥 Als .xlsx herunterladen</button>
+                        ${fileId ? `<a class="btn btn-ghost btn-sm" href="api.php?action=download&id=${fileId}">⬇️ Original</a>` : ''}
+                        ${!readOnly ? `<button type="button" class="btn btn-primary btn-sm" id="btn-office-sheet-save">💾 In Cloud speichern</button>` : ''}
+                    </div>
+                </div>
+                <div class="office-editor-body" id="office-spreadsheet-container"></div>
+            </div>
+        `, 'fullscreen');
+
+        const sheetContainer = $('#office-spreadsheet-container');
+        if (!sheetContainer || typeof x_spreadsheet === 'undefined' || typeof XLSX === 'undefined') {
+            toast('Tabellen-Editor (SheetJS / x-spreadsheet) konnte nicht geladen werden.', 'error');
+            return;
+        }
+
+        try {
+            x_spreadsheet.locale('de');
+        } catch (_) {}
+
+        // Convert Workbook <-> x-spreadsheet JSON format
+        function stox(wb) {
+            const out = [];
+            wb.SheetNames.forEach((name) => {
+                const o = { name, rows: {} };
+                const ws = wb.Sheets[name];
+                if (!ws || !ws['!ref']) {
+                    out.push(o);
+                    return;
+                }
+                const range = XLSX.utils.decode_range(ws['!ref']);
+                for (let R = range.s.r; R <= range.e.r; ++R) {
+                    const rowObj = { cells: {} };
+                    for (let C = range.s.c; C <= range.e.c; ++C) {
+                        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+                        const cell = ws[cellAddress];
+                        if (cell) {
+                            rowObj.cells[C] = { text: cell.w || String(cell.v ?? '') };
+                        }
+                    }
+                    o.rows[R] = rowObj;
+                }
+                out.push(o);
+            });
+            return out;
+        }
+
+        function xtos(sdata) {
+            const out = XLSX.utils.book_new();
+            sdata.forEach((xws) => {
+                const aoa = [[]];
+                const rowkeys = Object.keys(xws.rows).map(Number).sort((a, b) => a - b);
+                rowkeys.forEach((r) => {
+                    const cells = xws.rows[r].cells;
+                    Object.keys(cells).forEach((c) => {
+                        const cellVal = cells[c].text;
+                        const colIdx = Number(c);
+                        if (!aoa[r]) aoa[r] = [];
+                        aoa[r][colIdx] = cellVal;
+                    });
+                });
+                const ws = XLSX.utils.aoa_to_sheet(aoa);
+                XLSX.utils.book_append_sheet(out, ws, xws.name || 'Tabelle1');
+            });
+            return out;
+        }
+
+        let initialData = [];
+        if (arrayBufferData) {
+            try {
+                const wb = XLSX.read(arrayBufferData, { type: 'array' });
+                initialData = stox(wb);
+            } catch (err) {
+                console.warn('XLSX parse error:', err);
+            }
+        }
+
+        if (!initialData || initialData.length === 0) {
+            initialData = [{
+                name: 'Tabelle 1',
+                rows: {
+                    0: { cells: { 0: { text: 'Spalte A' }, 1: { text: 'Spalte B' }, 2: { text: 'Spalte C' } } },
+                },
+            }];
+        }
+
+        const xs = x_spreadsheet(sheetContainer, {
+            showToolbar: !readOnly,
+            showGrid: true,
+            showContextmenu: !readOnly,
+            view: {
+                height: () => sheetContainer.clientHeight || 550,
+                width: () => sheetContainer.clientWidth || 900,
+            },
+        }).loadData(initialData);
+
+        $('#btn-office-sheet-dl-xlsx')?.addEventListener('click', () => {
+            const newWb = xtos(xs.getData());
+            const targetName = fileId ? fileName : ($('#office-sheet-filename')?.value.trim() || fileName);
+            XLSX.writeFile(newWb, targetName.endsWith('.xlsx') ? targetName : `${targetName}.xlsx`);
+        });
+
+        $('#btn-office-sheet-save')?.addEventListener('click', async () => {
+            const nameInp = $('#office-sheet-filename');
+            let targetName = fileId ? fileName : (nameInp ? nameInp.value.trim() : fileName);
+            if (!targetName) {
+                toast('Bitte Dateinamen eingeben.', 'error');
+                return;
+            }
+            if (!targetName.toLowerCase().endsWith('.xlsx') && !targetName.toLowerCase().endsWith('.xls')) {
+                targetName += '.xlsx';
+            }
+            try {
+                const newWb = xtos(xs.getData());
+                const b64 = XLSX.write(newWb, { type: 'base64', bookType: 'xlsx' });
+                await apiPost('save_binary_base64', {
+                    folder_id: state.currentFolderId,
+                    file_id: fileId,
+                    name: targetName,
+                    base64: b64,
+                });
+                closeModal();
+                toast('Tabelle erfolgreich in der Cloud gespeichert.');
+                loadCurrentView();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+    }
+
     function openTextEditorModal(fileId, fileName, content, readOnly = false) {
         openModal(fileId ? `Textdatei: ${fileName}` : 'Neue Textdatei erstellen', `
             <form id="text-editor-form">
@@ -2544,6 +2799,32 @@
 
         if (file.category === 'zip') {
             openZipModal(file);
+            return;
+        }
+
+        // Check if file is an Office Spreadsheet (XLSX, XLS, ODS, CSV)
+        if (isOfficeSheetFile(file.name)) {
+            try {
+                toast('Lade Tabelle in Office…');
+                const dlResp = await fetch(`api.php?action=download&id=${file.id}`);
+                const buf = await dlResp.arrayBuffer();
+                const readOnly = !['owner', 'write'].includes(file.permission || state.permission);
+                openOfficeSheetEditor(file.id, file.name, buf, readOnly);
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+            return;
+        }
+
+        // Check if file is an Office Document (HTML doc or text)
+        if (file.name.toLowerCase().endsWith('.html') || file.name.toLowerCase().endsWith('.htm')) {
+            try {
+                const res = await apiGet({ action: 'read_text', id: file.id });
+                const readOnly = !['owner', 'write'].includes(res.permission);
+                openOfficeDocEditor(file.id, res.name, res.content, readOnly);
+            } catch (err) {
+                toast(err.message, 'error');
+            }
             return;
         }
 
