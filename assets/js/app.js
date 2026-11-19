@@ -2528,6 +2528,44 @@
         return ['xlsx', 'xls', 'ods', 'csv'].includes(ext);
     }
 
+    async function launchOfficeSheet(file) {
+        try {
+            toast('Lade Tabelle in Office…');
+            const dlResp = await fetch(`api.php?action=download&id=${file.id}`);
+            const buf = await dlResp.arrayBuffer();
+            const readOnly = !['owner', 'write'].includes(file.permission || state.permission);
+            await openOfficeSheetEditor(file.id, file.name, buf, readOnly);
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    }
+
+    async function launchOfficeDoc(file) {
+        const lowerName = file.name.toLowerCase();
+        try {
+            toast('Lade Dokument in Office…');
+            let htmlContent = '';
+            const readOnly = !['owner', 'write'].includes(file.permission || state.permission);
+
+            if (lowerName.endsWith('.docx') || lowerName.endsWith('.doc')) {
+                const dlResp = await fetch(`api.php?action=download&id=${file.id}`);
+                const buf = await dlResp.arrayBuffer();
+                if (typeof mammoth !== 'undefined') {
+                    const result = await mammoth.convertToHtml({ arrayBuffer: buf });
+                    htmlContent = result.value || '';
+                } else {
+                    htmlContent = '<p>Vorschau für Word-Dokument wird vorbereitet…</p>';
+                }
+            } else {
+                const res = await apiGet({ action: 'read_text', id: file.id });
+                htmlContent = res.content || '';
+            }
+            openOfficeDocEditor(file.id, file.name, htmlContent, readOnly);
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    }
+
     // --- Office 1: Rich-Text Document Editor (Word / Docs Alternative) ---
     async function openOfficeDocEditor(fileId, fileName, initialHtml = '', readOnly = false) {
         openModal(fileId ? `📄 Word-/Text-Dokument: ${fileName}` : '📄 Neues Word-/Text-Dokument', `
@@ -2665,14 +2703,18 @@
                 const range = XLSX.utils.decode_range(ws['!ref']);
                 for (let R = range.s.r; R <= range.e.r; ++R) {
                     const rowObj = { cells: {} };
+                    let hasCells = false;
                     for (let C = range.s.c; C <= range.e.c; ++C) {
                         const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
                         const cell = ws[cellAddress];
-                        if (cell) {
+                        if (cell && (cell.v !== undefined || cell.w !== undefined)) {
                             rowObj.cells[C] = { text: cell.w || String(cell.v ?? '') };
+                            hasCells = true;
                         }
                     }
-                    o.rows[R] = rowObj;
+                    if (hasCells) {
+                        o.rows[R] = rowObj;
+                    }
                 }
                 out.push(o);
             });
@@ -2683,11 +2725,11 @@
             const out = XLSX.utils.book_new();
             sdata.forEach((xws) => {
                 const aoa = [[]];
-                const rowkeys = Object.keys(xws.rows).map(Number).sort((a, b) => a - b);
+                const rowkeys = Object.keys(xws.rows || {}).map(Number).sort((a, b) => a - b);
                 rowkeys.forEach((r) => {
-                    const cells = xws.rows[r].cells;
+                    const cells = xws.rows[r]?.cells || {};
                     Object.keys(cells).forEach((c) => {
-                        const cellVal = cells[c].text;
+                        const cellVal = cells[c]?.text ?? '';
                         const colIdx = Number(c);
                         if (!aoa[r]) aoa[r] = [];
                         aoa[r][colIdx] = cellVal;
@@ -2702,10 +2744,11 @@
         let initialData = [];
         if (arrayBufferData) {
             try {
-                const wb = XLSX.read(arrayBufferData, { type: 'array' });
+                const wb = XLSX.read(arrayBufferData, { type: 'array', cellFormula: true, cellStyles: true });
                 initialData = stox(wb);
             } catch (err) {
                 console.warn('XLSX parse error:', err);
+                toast('Konnte XLSX nicht parsen: ' + err.message, 'error');
             }
         }
 
@@ -2727,6 +2770,13 @@
                 width: () => sheetContainer.clientWidth || 900,
             },
         }).loadData(initialData);
+
+        // Fix: Trigger resize calculation in case container dimensions initialized during modal display transition
+        setTimeout(() => {
+            try {
+                window.dispatchEvent(new Event('resize'));
+            } catch (_) {}
+        }, 80);
 
         $('#btn-office-sheet-dl-xlsx')?.addEventListener('click', () => {
             const newWb = xtos(xs.getData());
@@ -2814,48 +2864,14 @@
 
         // Check if file is an Office Spreadsheet (XLSX, XLS, ODS, CSV)
         if (isOfficeSheetFile(file.name)) {
-            try {
-                toast('Lade Tabelle in Office…');
-                const dlResp = await fetch(`api.php?action=download&id=${file.id}`);
-                const buf = await dlResp.arrayBuffer();
-                const readOnly = !['owner', 'write'].includes(file.permission || state.permission);
-                openOfficeSheetEditor(file.id, file.name, buf, readOnly);
-            } catch (err) {
-                toast(err.message, 'error');
-            }
+            await launchOfficeSheet(file);
             return;
         }
 
         // Check if file is an Office Document (.docx / .doc / HTML doc)
         const lowerName = file.name.toLowerCase();
-        if (lowerName.endsWith('.docx') || lowerName.endsWith('.doc')) {
-            try {
-                toast('Lade Word-Dokument in Office…');
-                const dlResp = await fetch(`api.php?action=download&id=${file.id}`);
-                const buf = await dlResp.arrayBuffer();
-                let htmlContent = '';
-                if (typeof mammoth !== 'undefined') {
-                    const result = await mammoth.convertToHtml({ arrayBuffer: buf });
-                    htmlContent = result.value || '';
-                } else {
-                    htmlContent = '<p>Vorschau für Word-Dokument wird vorbereitet…</p>';
-                }
-                const readOnly = !['owner', 'write'].includes(file.permission || state.permission);
-                openOfficeDocEditor(file.id, file.name, htmlContent, readOnly);
-            } catch (err) {
-                toast(err.message, 'error');
-            }
-            return;
-        }
-
-        if (lowerName.endsWith('.html') || lowerName.endsWith('.htm')) {
-            try {
-                const res = await apiGet({ action: 'read_text', id: file.id });
-                const readOnly = !['owner', 'write'].includes(res.permission);
-                openOfficeDocEditor(file.id, res.name, res.content, readOnly);
-            } catch (err) {
-                toast(err.message, 'error');
-            }
+        if (lowerName.endsWith('.docx') || lowerName.endsWith('.doc') || lowerName.endsWith('.html') || lowerName.endsWith('.htm')) {
+            await launchOfficeDoc(file);
             return;
         }
 
@@ -2891,16 +2907,30 @@
             `;
         }
 
+        const canEditOffice = isOfficeSheetFile(file.name) || isOfficeDocFile(file.name) || file.category === 'text';
+
         openModal(file.name, `
             ${previewHtml}
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem;flex-wrap:wrap;gap:0.5rem">
                 <span class="muted small">${formatBytes(file.size_bytes)} · ${esc(file.mime_type)}</span>
-                <div style="display:flex;gap:0.5rem">
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                    ${canEditOffice ? `<button type="button" class="btn btn-primary" id="modal-btn-office-edit">✏️ In Office bearbeiten</button>` : ''}
                     <button type="button" class="btn btn-ghost" id="modal-btn-vault">🔒 Verschlüsseln</button>
-                    <a class="btn btn-primary" href="${dlUrl}">⬇️ Herunterladen</a>
+                    <a class="btn btn-ghost" href="${dlUrl}">⬇️ Herunterladen</a>
                 </div>
             </div>
         `, file.category === 'pdf' || file.category === 'image' || file.category === 'video');
+
+        $('#modal-btn-office-edit')?.addEventListener('click', async () => {
+            closeModal();
+            if (isOfficeSheetFile(file.name)) {
+                await launchOfficeSheet(file);
+            } else if (isOfficeDocFile(file.name)) {
+                await launchOfficeDoc(file);
+            } else {
+                openFileModal(file);
+            }
+        });
 
         $('#modal-btn-vault')?.addEventListener('click', () => {
             openVaultModal(file);
