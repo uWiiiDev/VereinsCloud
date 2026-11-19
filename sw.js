@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vereinscloud-shell-v22';
+const CACHE_NAME = 'vereinscloud-shell-v23';
 const SHELL_ASSETS = [
     'assets/css/app.css',
     'assets/js/app.js',

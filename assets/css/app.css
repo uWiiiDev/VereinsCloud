@@ -1122,6 +1122,7 @@ html[data-theme="light"] .alert-success {
     height: 100%;
     min-height: 0;
     flex: 1;
+    overflow: hidden;
 }
 
 .office-editor-toolbar {
@@ -1129,12 +1130,15 @@ html[data-theme="light"] .alert-success {
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 0.4rem 0.65rem;
+    padding: 0.5rem 0.75rem;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 8px 8px 0 0;
     flex-wrap: wrap;
     flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 30;
 }
 
 .office-editor-body {
@@ -1146,7 +1150,18 @@ html[data-theme="light"] .alert-success {
     border-top: none;
     border-radius: 0 0 8px 8px;
     position: relative;
-    overflow: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+#office-quill-editor {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
 }
 
 /* Dark mode adjustments for office containers */
@@ -1156,8 +1171,14 @@ html[data-theme="light"] .alert-success {
 
 .ql-toolbar.ql-snow {
     border: 1px solid var(--border) !important;
+    border-top: none !important;
     background: #f8fafc;
-    border-radius: 8px 8px 0 0;
+    border-radius: 0 !important;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
 }
 
 .ql-container.ql-snow {
@@ -1168,7 +1189,25 @@ html[data-theme="light"] .alert-success {
     background: #fff;
     color: #0f172a;
     font-family: system-ui, -apple-system, sans-serif;
+    flex: 1;
+    min-height: 0;
     height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ql-editor {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow-y: auto !important;
+    padding: 1.75rem 2.5rem !important;
+    font-size: 1.05rem;
+    line-height: 1.7;
+    background: #ffffff;
+    color: #0f172a;
+    box-sizing: border-box;
 }
 
 .x-spreadsheet {
