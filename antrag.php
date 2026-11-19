@@ -92,7 +92,25 @@ if ($action === 'submit' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $specialPass = trim((string)($input['special_pass'] ?? ''));
     $joinDate  = trim((string)($input['join_date'] ?? '')) ?: date('Y-m-d');
     $feeType   = trim((string)($input['fee_type'] ?? 'aktiv'));
-    $department= trim((string)($input['department'] ?? ''));
+    
+    // Departments: support single, multiple or custom
+    $depts = [];
+    if (isset($input['department'])) {
+        if (is_array($input['department'])) {
+            $depts = array_filter(array_map('trim', $input['department']));
+        } elseif (trim((string)$input['department']) !== '') {
+            $depts[] = trim((string)$input['department']);
+        }
+    }
+    $deptCustom = trim((string)($input['department_custom'] ?? ''));
+    if ($deptCustom !== '') {
+        $depts[] = $deptCustom;
+    }
+    $department = implode(', ', array_unique($depts));
+    if ($department === '') {
+        $department = 'Hauptverein';
+    }
+
     $terms     = !empty($input['terms_accepted']);
 
     // SEPA
@@ -698,6 +716,12 @@ if ($action === 'view') {
 // =============================================================================
 // Standardansicht: Das Online-Formular (Mobile-First mit Signature Pad)
 // =============================================================================
+$clubConfig = MemberManager::getClubConfig();
+$rawDepts = $clubConfig['club_departments'] ?? '';
+$configuredDepts = array_filter(array_map('trim', preg_split('/[,;\n\r]+/', $rawDepts)));
+if (empty($configuredDepts)) {
+    $configuredDepts = ['Fußball', 'Turnen & Gymnastik', 'Gesang & Chor', 'Tennis', 'Tischtennis', 'Leichtathletik / Lauftreff', 'Freizeit- & Gesundheitssport', 'Hauptverein'];
+}
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -1011,7 +1035,7 @@ if ($action === 'view') {
 
             <!-- 2. Mitgliedsbeitrag & Sparte -->
             <div class="form-section">
-                <div class="section-title">⚽ 2. Mitgliedschaft & Abteilung</div>
+                <div class="section-title">⚽ 2. Mitgliedschaft & Abteilung(en)</div>
 
                 <div class="grid-2">
                     <div class="form-group">
@@ -1024,23 +1048,28 @@ if ($action === 'view') {
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Gewünschte Sparte / Abteilung</label>
-                        <select name="department" class="input-field">
-                            <option value="Fußball">Fußball</option>
-                            <option value="Turnen">Turnen & Gymnastik</option>
-                            <option value="Gesang">Gesang & Chor</option>
-                            <option value="Tennis">Tennis</option>
-                            <option value="Tischtennis">Tischtennis</option>
-                            <option value="Leichtathletik">Leichtathletik / Lauftreff</option>
-                            <option value="Freizeit">Freizeit- & Gesundheitssport</option>
-                            <option value="Hauptverein">Hauptverein / Ohne feste Abteilung</option>
-                        </select>
+                        <label>Gewünschtes Beitrittsdatum</label>
+                        <input type="date" name="join_date" class="input-field" value="<?= date('Y-m-d') ?>">
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Gewünschtes Beitrittsdatum</label>
-                    <input type="date" name="join_date" class="input-field" value="<?= date('Y-m-d') ?>">
+                <div class="form-group" style="margin-top:0.5rem">
+                    <label style="font-weight:600;display:block;margin-bottom:0.4rem">
+                        Gewünschte Sparte(n) / Abteilung(en) <span class="req">*</span>
+                        <span style="font-size:0.75rem;font-weight:normal;color:var(--app-muted)">(Mehrfachauswahl möglich)</span>
+                    </label>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));gap:0.55rem;margin-bottom:0.85rem">
+                        <?php foreach ($configuredDepts as $idx => $deptName): ?>
+                            <label class="checkbox-label" style="background:#0f172a;border:1px solid var(--app-card-border);padding:0.55rem 0.75rem;border-radius:6px;transition:border-color 0.15s">
+                                <input type="checkbox" name="departments[]" value="<?= htmlspecialchars($deptName) ?>" <?= $idx === 0 ? 'checked' : '' ?>>
+                                <span><?= htmlspecialchars($deptName) ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                        <label style="font-size:0.8rem;color:var(--app-muted)">Sonstige / weitere Abteilung:</label>
+                        <input type="text" name="department_custom" class="input-field" placeholder="z. B. Ski, Wandern, Volleyball, Jedermann…">
+                    </div>
                 </div>
             </div>
 
@@ -1305,6 +1334,11 @@ if ($action === 'view') {
             data.signature_png = sig1.toDataURL();
             data.sepa_signature_png = isSame ? data.signature_png : sig2.toDataURL();
             data.terms_accepted = form.terms_accepted.checked ? 1 : 0;
+
+            const depts = [];
+            form.querySelectorAll('input[name="departments[]"]:checked').forEach(cb => depts.push(cb.value));
+            data.department = depts;
+            data.department_custom = form.department_custom ? form.department_custom.value.trim() : '';
 
             submitBtn.disabled = true;
             submitBtn.textContent = '⏳ Wird eingereicht…';

@@ -5114,6 +5114,7 @@
                         <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">🟢 Übernommen: <strong>${counts.accepted}</strong></span>
                     </div>
                     <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-manage-app-depts">⚙️ Abteilungen verwalten</button>
                         <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-antrag-link">📋 Link zum Online-Antrag kopieren</button>
                         <a href="antrag.php" target="_blank" class="btn btn-primary btn-sm">🔗 Öffentliches Formular öffnen</a>
                     </div>
@@ -5136,6 +5137,8 @@
                     </table>
                 </div>
             `;
+
+            $('#btn-manage-app-depts')?.addEventListener('click', openManageDepartmentsModal);
 
             $('#btn-copy-antrag-link')?.addEventListener('click', async () => {
                 try {
@@ -6099,6 +6102,39 @@
         });
     }
 
+    function openManageDepartmentsModal() {
+        const cfg = cachedMembersData.club_config || {};
+        const curDepts = (cfg.club_departments || '').split(/[,;\n\r]+/).map((s) => s.trim()).filter(Boolean).join('\n');
+        openModal('⚙️ Abteilungen & Sparten verwalten', `
+            <form id="manage-depts-form">
+                <p class="small muted" style="margin-top:0;line-height:1.5">
+                    Geben Sie hier alle Abteilungen und Sparten Ihres Vereins ein (eine pro Zeile oder kommagetrennt). Diese stehen im Online-Mitgliedsantrag zur Auswahl und werden in der Mitgliederverwaltung als Abteilungsfilter verwendet.
+                </p>
+                <div class="form-group" style="margin-bottom:1rem">
+                    <label class="small muted" style="font-weight:600">Abteilungen / Sparten</label>
+                    <textarea name="club_departments" class="input" rows="7" placeholder="Fußball&#10;Turnen & Gymnastik&#10;Gesang & Chor&#10;Tennis&#10;Tischtennis&#10;Leichtathletik / Lauftreff&#10;Freizeit- & Gesundheitssport">${esc(curDepts)}</textarea>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+                    <button type="submit" class="btn btn-primary">💾 Abteilungen speichern</button>
+                </div>
+            </form>
+        `);
+
+        $('#manage-depts-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const raw = e.target.club_departments.value;
+            const cleaned = raw.split(/[\n\r,;]+/).map((s) => s.trim()).filter(Boolean).join(', ');
+            try {
+                const res = await apiPost('members_save_club_config', { club_departments: cleaned });
+                cachedMembersData.club_config = res.club_config || {};
+                closeModal();
+                toast('Abteilungen erfolgreich gespeichert!');
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+    }
+
     function openClubSepaConfigModal(onSaved = null) {
         const cfg = cachedMembersData.club_config || {};
         openModal('⚙️ Vereins- & SEPA-Stammdaten (Urkunden, Quittungen & Bankeinzug)', `
@@ -6123,6 +6159,11 @@
                         <label class="small muted">2. Unterzeichner / Kassierer (Urkunden & Quittungen)</label>
                         <input type="text" name="club_sign2" class="input" value="${esc(cfg.club_sign2 || 'Schatzmeister/in')}" placeholder="z. B. Erika Muster (Schatzmeisterin)">
                     </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom:0.75rem">
+                    <label class="small muted">Vereinsabteilungen / Sparten (kommagetrennt für Online-Antrag & Filter)</label>
+                    <input type="text" name="club_departments" class="input" value="${esc(cfg.club_departments || '')}" placeholder="z. B. Fußball, Turnen & Gymnastik, Gesang & Chor...">
                 </div>
 
                 <hr style="border:none;border-top:1px solid var(--border);margin:0.85rem 0">

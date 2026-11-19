@@ -82,46 +82,66 @@ class MemberManager
     {
         $s = Database::getSettings();
         $appName = trim((string)($s['app_name'] ?? 'VereinsCloud'));
+
+        $rawDepts = trim((string)($s['club_departments'] ?? ''));
+        if ($rawDepts === '') {
+            $rawDepts = "Fußball, Turnen & Gymnastik, Gesang & Chor, Tennis, Tischtennis, Leichtathletik / Lauftreff, Freizeit- & Gesundheitssport, Hauptverein";
+        }
+
         return [
-            'club_name'          => trim((string)($s['club_name'] ?? '')) ?: $appName,
-            'club_city'          => trim((string)($s['club_city'] ?? '')),
+            'club_name'          => trim((string)($s['club_name'] ?? '')) ?: 'Sport- u. Gesangverein Böbingen 1920 e.V.',
+            'club_city'          => trim((string)($s['club_city'] ?? '')) ?: '73560 Böbingen',
             'club_sign1'         => trim((string)($s['club_sign1'] ?? '')) ?: '1. Vorsitzende/r',
             'club_sign2'         => trim((string)($s['club_sign2'] ?? '')) ?: 'Schatzmeister/in',
             'sepa_creditor_iban' => trim((string)($s['sepa_creditor_iban'] ?? '')),
             'sepa_creditor_bic'  => trim((string)($s['sepa_creditor_bic'] ?? '')),
-            'sepa_creditor_id'   => trim((string)($s['sepa_creditor_id'] ?? '')),
+            'sepa_creditor_id'   => trim((string)($s['sepa_creditor_id'] ?? '')) ?: 'DE47ZZZ00000777063',
             'sepa_remittance'    => trim((string)($s['sepa_remittance'] ?? '')) ?: ('Mitgliedsbeitrag ' . date('Y')),
+            'club_departments'   => $rawDepts,
         ];
     }
 
     public static function saveClubConfig(array $input): array
     {
-        $clubName = mb_substr(trim((string)($input['club_name'] ?? '')), 0, 100);
-        if ($clubName === '') {
-            throw new RuntimeException('Bitte geben Sie den Vereinsnamen an.');
+        if (isset($input['club_departments'])) {
+            Database::setSetting('club_departments', trim((string)$input['club_departments']));
         }
-        $clubCity  = mb_substr(trim((string)($input['club_city'] ?? '')), 0, 100);
-        $clubSign1 = mb_substr(trim((string)($input['club_sign1'] ?? '')), 0, 100) ?: '1. Vorsitzende/r';
-        $clubSign2 = mb_substr(trim((string)($input['club_sign2'] ?? '')), 0, 100) ?: 'Schatzmeister/in';
 
-        $credIbanRaw = trim((string)($input['sepa_creditor_iban'] ?? ''));
-        $ibanInfo    = self::validateIban($credIbanRaw);
-        if (!$ibanInfo['valid']) {
-            throw new RuntimeException('Ungültige Vereins-IBAN: ' . $ibanInfo['error']);
+        if (isset($input['club_name'])) {
+            $clubName = mb_substr(trim((string)$input['club_name']), 0, 100);
+            if ($clubName !== '') {
+                Database::setSetting('club_name', $clubName);
+            }
         }
-        $credIban = $ibanInfo['normalized'];
-        $credBic  = strtoupper(str_replace(' ', '', mb_substr(trim((string)($input['sepa_creditor_bic'] ?? '')), 0, 11)));
-        $credId   = strtoupper(str_replace(' ', '', mb_substr(trim((string)($input['sepa_creditor_id'] ?? '')), 0, 35)));
-        $remit    = mb_substr(trim((string)($input['sepa_remittance'] ?? '')), 0, 100) ?: ('Mitgliedsbeitrag ' . date('Y'));
+        if (isset($input['club_city'])) {
+            Database::setSetting('club_city', mb_substr(trim((string)$input['club_city']), 0, 100));
+        }
+        if (isset($input['club_sign1'])) {
+            Database::setSetting('club_sign1', mb_substr(trim((string)$input['club_sign1']), 0, 100));
+        }
+        if (isset($input['club_sign2'])) {
+            Database::setSetting('club_sign2', mb_substr(trim((string)$input['club_sign2']), 0, 100));
+        }
 
-        Database::setSetting('club_name', $clubName);
-        Database::setSetting('club_city', $clubCity);
-        Database::setSetting('club_sign1', $clubSign1);
-        Database::setSetting('club_sign2', $clubSign2);
-        Database::setSetting('sepa_creditor_iban', $credIban);
-        Database::setSetting('sepa_creditor_bic', $credBic);
-        Database::setSetting('sepa_creditor_id', $credId);
-        Database::setSetting('sepa_remittance', $remit);
+        if (isset($input['sepa_creditor_iban'])) {
+            $credIbanRaw = trim((string)$input['sepa_creditor_iban']);
+            if ($credIbanRaw !== '') {
+                $ibanInfo = self::validateIban($credIbanRaw);
+                if (!$ibanInfo['valid']) {
+                    throw new RuntimeException('Ungültige Vereins-IBAN: ' . $ibanInfo['error']);
+                }
+                Database::setSetting('sepa_creditor_iban', $ibanInfo['normalized']);
+            }
+        }
+        if (isset($input['sepa_creditor_bic'])) {
+            Database::setSetting('sepa_creditor_bic', strtoupper(str_replace(' ', '', mb_substr(trim((string)$input['sepa_creditor_bic']), 0, 11))));
+        }
+        if (isset($input['sepa_creditor_id'])) {
+            Database::setSetting('sepa_creditor_id', strtoupper(str_replace(' ', '', mb_substr(trim((string)$input['sepa_creditor_id']), 0, 35))));
+        }
+        if (isset($input['sepa_remittance'])) {
+            Database::setSetting('sepa_remittance', mb_substr(trim((string)$input['sepa_remittance']), 0, 100));
+        }
 
         return self::getClubConfig();
     }
