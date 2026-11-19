@@ -238,6 +238,10 @@ $bootData = [
                         </button>
                     </div>
                 </div>
+                <button type="button" class="nav-item" data-view="help" id="nav-item-help" style="margin-top:0.4rem">
+                    <span class="nav-icon">❓</span>
+                    <span style="flex:1">Hilfe & Anleitung</span>
+                </button>
             </nav>
 
             <div class="sidebar-spacer"></div>

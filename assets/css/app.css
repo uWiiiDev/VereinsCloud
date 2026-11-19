@@ -1943,6 +1943,310 @@ html[data-theme="light"] .alert-success {
     gap: 0.22rem;
 }
 
+/* Help & Documentation Center */
+.help-wrap {
+    padding: 0.25rem 0.5rem 3rem;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.help-header {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.15) 0%, rgba(15, 23, 42, 0.6) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg, 12px);
+    padding: 1.5rem 1.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.help-header h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.help-header p {
+    margin: 0 0 1rem;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.help-search-box {
+    position: relative;
+    max-width: 550px;
+}
+
+.help-search-box input {
+    width: 100%;
+    padding: 0.65rem 1rem 0.65rem 2.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.help-search-box .icon {
+    position: absolute;
+    left: 0.85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.help-nav-pills {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+
+.help-pill {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    font-size: 0.84rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+}
+
+.help-pill:hover {
+    border-color: var(--primary);
+    transform: translateY(-1px);
+}
+
+.help-pill.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+.help-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 2rem;
+}
+
+@media (max-width: 768px) {
+    .help-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.help-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg, 12px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    transition: border-color 0.15s;
+}
+
+.help-card:hover {
+    border-color: var(--primary);
+}
+
+.help-card-header {
+    padding: 1.1rem 1.25rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.help-card-header h3 {
+    margin: 0 0 0.25rem;
+    font-size: 1.15rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.help-card-body {
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    flex: 1;
+}
+
+.help-card-body p {
+    margin: 0;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.help-steps {
+    margin: 0;
+    padding-left: 1.2rem;
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--text);
+}
+
+.help-steps li {
+    margin-bottom: 0.35rem;
+}
+
+.help-tip {
+    background: rgba(37, 99, 235, 0.08);
+    border-left: 3px solid var(--primary);
+    padding: 0.5rem 0.75rem;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.82rem;
+    color: var(--text);
+}
+
+/* UI Mockup / Screenshot Component */
+.help-mockup {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 0.5rem;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    font-family: system-ui, sans-serif;
+}
+
+.mockup-topbar {
+    background: #1e293b;
+    padding: 6px 10px;
+    border-bottom: 1px solid #334155;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: #94a3b8;
+}
+
+.mockup-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+}
+.mockup-dot.red { background: #ef4444; }
+.mockup-dot.yellow { background: #f59e0b; }
+.mockup-dot.green { background: #10b981; }
+
+.mockup-title {
+    margin-left: 4px;
+    font-weight: 500;
+    color: #cbd5e1;
+}
+
+.mockup-content {
+    padding: 10px 12px;
+    background: #0b1120;
+    font-size: 0.8rem;
+    color: #e2e8f0;
+}
+
+.mockup-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #1e293b;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-size: 0.72rem;
+    color: #cbd5e1;
+    flex-wrap: wrap;
+}
+
+.mockup-btn {
+    background: #334155;
+    color: #f1f5f9;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+}
+
+.mockup-btn-primary {
+    background: #2563eb;
+    border-color: #3b82f6;
+    color: #fff;
+}
+
+.mockup-btn-success {
+    background: #059669;
+    border-color: #10b981;
+    color: #fff;
+}
+
+.mockup-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+}
+
+.mockup-badge-success {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.mockup-badge-info {
+    background: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.mockup-badge-warning {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.mockup-slide-preview {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 10px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.mockup-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.74rem;
+    background: #1e293b;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.mockup-table th, .mockup-table td {
+    padding: 4px 8px;
+    border: 1px solid #334155;
+    text-align: left;
+}
+
+.mockup-table th {
+    background: #0f172a;
+    color: #94a3b8;
+    font-weight: 600;
+}
+
 .stat-bar-labels {
     display: flex;
     justify-content: space-between;

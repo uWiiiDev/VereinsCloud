@@ -829,6 +829,10 @@
             await loadMembersView();
             return;
         }
+        if (state.view === 'help') {
+            loadHelpView();
+            return;
+        }
 
         try {
             const params = {
@@ -5013,6 +5017,608 @@
         } catch (err) {
             toast(err.message, 'error');
         }
+    }
+
+    // Help & Documentation Center ("❓ Hilfe & Anleitung") View
+    function loadHelpView() {
+        $('#folder-write-actions')?.classList.add('hidden');
+        $('#trash-toolbar')?.classList.add('hidden');
+        $('#breadcrumbs').innerHTML = `<span class="crumb active">❓ Hilfe &amp; Anleitungen für die VereinsCloud</span>`;
+
+        const container = $('#items-container');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div class="help-wrap">
+                <div class="help-header">
+                    <h2>❓ VereinsCloud – Hilfe, Anleitungen &amp; Best Practices</h2>
+                    <p>Hier findest du Schritt-für-Schritt-Anleitungen, praxisnahe Bildschirm-Vorschauen und nützliche Tipps für alle Funktionen deines Vereins – von der Mitgliederverwaltung bis hin zu PowerPoint-Präsentationen und dem Online-Mitgliedsantrag.</p>
+                    <div class="help-search-box">
+                        <span class="icon">🔍</span>
+                        <input type="text" id="help-search-input" placeholder="Thema, Funktion oder Begriff suchen... (z. B. Beamer, SEPA, Antrag, Passkey)">
+                    </div>
+                </div>
+
+                <div class="help-nav-pills" id="help-pills">
+                    <button type="button" class="help-pill active" data-cat="all">🌟 Alle Themen</button>
+                    <button type="button" class="help-pill" data-cat="office">📽️ Präsentationen &amp; Office</button>
+                    <button type="button" class="help-pill" data-cat="members">🪪 Mitglieder &amp; SEPA</button>
+                    <button type="button" class="help-pill" data-cat="antrag">📨 Online-Antrag (SGV)</button>
+                    <button type="button" class="help-pill" data-cat="files">📁 Dateien &amp; Freigaben</button>
+                    <button type="button" class="help-pill" data-cat="calendar">📅 Kalender &amp; Termine</button>
+                    <button type="button" class="help-pill" data-cat="security">🔒 Sicherheit &amp; 2FA</button>
+                    <button type="button" class="help-pill" data-cat="faq">💡 Häufige Fragen (FAQ)</button>
+                </div>
+
+                <div id="help-cards-grid" class="help-grid">
+                    <!-- 1. PowerPoint & Beamer -->
+                    <div class="help-card" data-category="office" data-keywords="powerpoint pptx beamer präsentation folien bilder fullscreen bildschirm">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>📽️ PowerPoint (.pptx) &amp; Beamer-Modus</h3>
+                                <div class="small muted">Folien interaktiv abspielen, im Vollbild präsentieren und direkt bearbeiten</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-info">Office</span>
+                        </div>
+                        <div class="help-card-body">
+                            <p>VereinsCloud besitzt einen integrierten PowerPoint-Viewer und -Editor für <code>.pptx</code>-Dateien – inklusive Bildanzeige und Beamer-Vollbildmodus.</p>
+                            <ol class="help-steps">
+                                <li><strong>Öffnen:</strong> Klicke auf eine beliebige <code>.pptx</code>-Datei in deinen Ordnern.</li>
+                                <li><strong>Präsentieren:</strong> Nutze die Pfeiltasten auf der Tastatur oder klicke auf <strong>🖵 Beamer-Modus</strong> für ein rahmenloses Vollbild bei Jahreshauptversammlungen.</li>
+                                <li><strong>Bearbeiten:</strong> Über das Stift-Symbol <strong>✏️ Folie bearbeiten</strong> kannst du Folientitel, Aufzählungspunkte und Bilder anpassen sowie neue Folien anlegen.</li>
+                                <li><strong>Speichern:</strong> Ein Klick auf <strong>💾 Speichern</strong> verpackt die Präsentation neu als echte OpenXML-Datei direkt im Cloud-Speicher.</li>
+                            </ol>
+                            <div class="help-tip">
+                                💡 <strong>Tipp:</strong> Drücke im Beamer-Modus einfach die Taste <strong>ESC</strong>, um wieder zur gewohnten Dateiansicht zurückzukehren.
+                            </div>
+                            <div class="help-mockup">
+                                <div class="mockup-topbar">
+                                    <span class="mockup-dot red"></span><span class="mockup-dot yellow"></span><span class="mockup-dot green"></span>
+                                    <span class="mockup-title">Präsentation_Jahreshauptversammlung_2026.pptx</span>
+                                    <span style="margin-left:auto;display:flex;gap:4px">
+                                        <span class="mockup-btn mockup-btn-primary">🖵 Beamer-Modus</span>
+                                        <span class="mockup-btn">✏️ Folie bearbeiten</span>
+                                    </span>
+                                </div>
+                                <div class="mockup-content">
+                                    <div class="mockup-slide-preview">
+                                        <div style="flex:1">
+                                            <div style="font-weight:700;font-size:0.95rem;color:#60a5fa;margin-bottom:4px">SGV Böbingen 1920 e.V. – Jahresbericht</div>
+                                            <div style="font-size:0.75rem;line-height:1.4;color:#cbd5e1">
+                                                • 1.250 aktive Mitglieder in 14 Abteilungen<br>
+                                                • Renovierung des Vereinsheims erfolgreich abgeschlossen<br>
+                                                • Neuer digitaler Online-Aufnahmeantrag aktiv
+                                            </div>
+                                        </div>
+                                        <div style="width:90px;height:60px;background:#334155;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:0.65rem;color:#94a3b8;border:1px dashed #64748b">
+                                            <span>🖼️</span>
+                                            <span>vereinsheim.jpg</span>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:0.7rem;color:#94a3b8">
+                                        <span>Folie 1 von 14</span>
+                                        <div style="display:flex;gap:4px">
+                                            <span class="mockup-btn">◀ Vorherige</span>
+                                            <span class="mockup-btn">Nächste ▶</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Excel & Tabellen -->
+                    <div class="help-card" data-category="office" data-keywords="excel xlsx tabellen kalkulation formeln summe export listen budget">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>📊 Excel (.xlsx) Tabellenkalkulation</h3>
+                                <div class="small muted">Listen, Turnierpläne und Kassenberichte berechnen und pflegen</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-info">Office</span>
+                        </div>
+                        <div class="help-card-body">
+                            <p>Arbeite mit Tabellenkalkulationen direkt im Webbrowser – ohne Microsoft 365 Installation auf dem Computer.</p>
+                            <ol class="help-steps">
+                                <li><strong>Neu anlegen:</strong> Rechtsklick in einem Ordner &rarr; <strong>Neu erstellen ▾ &rarr; Excel-Tabelle (.xlsx)</strong>.</li>
+                                <li><strong>Rechnen:</strong> Formeln wie <code>=SUMME(A1:A10)</code> oder <code>=MITTELWERT(...)</code> werden in Echtzeit berechnet.</li>
+                                <li><strong>Exportieren:</strong> Lade fertige Tabellen jederzeit als Standard-<code>.xlsx</code> für den Steuerberater oder Verband herunter.</li>
+                            </ol>
+                            <div class="help-tip">
+                                💡 <strong>Tipp:</strong> Du kannst mehrere Tabellenblätter über die unteren Reiter anlegen und wie gewohnt mit Doppelklick umbenennen.
+                            </div>
+                            <div class="help-mockup">
+                                <div class="mockup-topbar">
+                                    <span class="mockup-dot red"></span><span class="mockup-dot yellow"></span><span class="mockup-dot green"></span>
+                                    <span class="mockup-title">Turnierplan_Böbinger_Sommercup.xlsx</span>
+                                    <span style="margin-left:auto;display:flex;gap:4px">
+                                        <span class="mockup-btn mockup-btn-primary">💾 Speichern</span>
+                                        <span class="mockup-btn">⬇️ XLSX</span>
+                                    </span>
+                                </div>
+                                <div class="mockup-content">
+                                    <div class="mockup-toolbar">
+                                        <strong style="color:#60a5fa">fx</strong>
+                                        <span style="background:#0f172a;padding:1px 6px;border-radius:3px;border:1px solid #334155;font-family:monospace">=SUMME(D2:D4)</span>
+                                    </div>
+                                    <table class="mockup-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Mannschaft</th>
+                                                <th>Spiele</th>
+                                                <th>Tore</th>
+                                                <th>Punkte</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>⚽ SGV Böbingen I</td>
+                                                <td>4</td>
+                                                <td>12:3</td>
+                                                <td><strong>10</strong></td>
+                                            </tr>
+                                            <tr>
+                                                <td>⚽ TV Heuchlingen</td>
+                                                <td>4</td>
+                                                <td>9:5</td>
+                                                <td><strong>8</strong></td>
+                                            </tr>
+                                            <tr>
+                                                <td>⚽ TSV Mögglingen</td>
+                                                <td>4</td>
+                                                <td>6:8</td>
+                                                <td><strong>4</strong></td>
+                                            </tr>
+                                            <tr style="background:rgba(37,99,235,0.15)">
+                                                <td><strong>Σ Gesamt</strong></td>
+                                                <td>12</td>
+                                                <td>27:16</td>
+                                                <td style="color:#60a5fa"><strong>22</strong></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Word (.docx) & Dokumente -->
+                    <div class="help-card" data-category="office" data-keywords="word docx text editor protokoll einladung ausschuss brief">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>📝 Word (.docx) &amp; Texteditor</h3>
+                                <div class="small muted">Einladungen, Rundschreiben und Sitzungsprotokolle verfassen</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-info">Office</span>
+                        </div>
+                        <div class="help-card-body">
+                            <p>Verfasse offizielle Schriftstücke direkt im Browser mit vollständiger Formatierung und DOCX-Export.</p>
+                            <ol class="help-steps">
+                                <li><strong>Erstellen:</strong> Rechtsklick &rarr; <strong>Neu erstellen ▾ &rarr; Word-Dokument (.docx)</strong>.</li>
+                                <li><strong>Formatieren:</strong> Überschriften, Aufzählungen, Tabellen und Auszeichnungen mit der Formatleiste gestalten.</li>
+                                <li><strong>Speichern &amp; Drucken:</strong> Per Tastenkürzel <code>Strg + S</code> sichern oder als PDF/Word-Dokument herunterladen.</li>
+                            </ol>
+                            <div class="help-tip">
+                                💡 <strong>Tipp:</strong> Gemeinsam an Protokollen arbeiten: Teile die Datei mit Vorstandskollegen für Lese- oder Schreibrechte.
+                            </div>
+                            <div class="help-mockup">
+                                <div class="mockup-topbar">
+                                    <span class="mockup-dot red"></span><span class="mockup-dot yellow"></span><span class="mockup-dot green"></span>
+                                    <span class="mockup-title">Einladung_Ausschusssitzung_2026.docx</span>
+                                    <span style="margin-left:auto;display:flex;gap:4px">
+                                        <span class="mockup-btn mockup-btn-primary">💾 Speichern</span>
+                                    </span>
+                                </div>
+                                <div class="mockup-content">
+                                    <div class="mockup-toolbar">
+                                        <span class="mockup-btn"><strong>B</strong></span>
+                                        <span class="mockup-btn"><em>I</em></span>
+                                        <span class="mockup-btn"><u>U</u></span>
+                                        <span class="mockup-btn">H1</span>
+                                        <span class="mockup-btn">H2</span>
+                                        <span class="mockup-btn">• Liste</span>
+                                    </div>
+                                    <div style="background:#ffffff;color:#1e293b;padding:12px;border-radius:4px;font-family:Georgia,serif;font-size:0.75rem;line-height:1.4">
+                                        <div style="text-align:center;font-weight:700;font-size:0.85rem;color:#0f172a">SGV Böbingen 1920 e.V.</div>
+                                        <div style="text-align:center;font-size:0.7rem;color:#64748b;margin-bottom:8px">Der Vorstand · 73560 Böbingen an der Rems</div>
+                                        <p style="margin:0 0 4px"><strong>Tagesordnung zur Ausschusssitzung am 19. November 2026:</strong></p>
+                                        <div style="font-size:0.7rem;color:#334155">
+                                            1. Begrüßung durch den 1. Vorsitzenden<br>
+                                            2. Genehmigung des Protokolls der letzten Sitzung<br>
+                                            3. Vorbereitung der Ehrungsmatinee &amp; Jubiläen
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. Mitgliederverwaltung -->
+                    <div class="help-card" data-category="members" data-keywords="mitglieder karteikarte lsv altersstruktur abteilungen ehrungen jubiläen import">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>🪪 Mitgliederverwaltung &amp; Stammdaten</h3>
+                                <div class="small muted">Mitgliederliste, Spartenzugehörigkeit und Verbandsmeldungen (LSV)</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-success">Mitglieder</span>
+                        </div>
+                        <div class="help-card-body">
+                            <p>Behalte jederzeit den vollständigen Überblick über deine Mitglieder, Sparten, Ehrungsjubiläen und Altersverteilungen.</p>
+                            <ol class="help-steps">
+                                <li><strong>Mitgliederliste aufrufen:</strong> Klicke im Menü links auf <a href="javascript:void(0)" data-jump-view="members" style="color:var(--primary);text-decoration:underline">🪪 Mitglieder</a>.</li>
+                                <li><strong>Mitglied anlegen:</strong> Mit <strong>➕ Neues Mitglied anlegen</strong> erfassen oder bestehende Vereinslisten per <strong>📥 CSV-Import</strong> importieren.</li>
+                                <li><strong>Statistik &amp; Verband:</strong> Unter <strong>📊 Statistik</strong> findest du die Altersgruppen nach Vorgabe des Landessportverbandes (LSV).</li>
+                                <li><strong>Jubiläen &amp; Urkunden:</strong> Unter <strong>🎂 Jubiläen</strong> werden runde Geburtstage und Vereinszugehörigkeiten (z. B. 25, 40, 50 Jahre) mit druckfertigen Ehrenurkunden angezeigt.</li>
+                            </ol>
+                            <div class="help-tip">
+                                💡 <strong>Tipp:</strong> Über das Suchfeld oben kannst du blitzschnell nach Namen, Mitgliedsnummern oder Abteilungen filtern.
+                            </div>
+                            <div class="help-mockup">
+                                <div class="mockup-topbar">
+                                    <span class="mockup-dot red"></span><span class="mockup-dot yellow"></span><span class="mockup-dot green"></span>
+                                    <span class="mockup-title">🪪 Mitgliederkartei (1.250 aktiv)</span>
+                                    <span style="margin-left:auto">
+                                        <span class="mockup-btn mockup-btn-success">➕ Neues Mitglied</span>
+                                    </span>
+                                </div>
+                                <div class="mockup-content">
+                                    <div class="mockup-toolbar">
+                                        <span>🔍 Filter: "Müller"</span>
+                                        <span class="mockup-badge mockup-badge-info">Abt: Fußball</span>
+                                    </div>
+                                    <table class="mockup-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Nr.</th>
+                                                <th>Name, Vorname</th>
+                                                <th>Abteilung</th>
+                                                <th>Status</th>
+                                                <th>Beitrag</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>1042</td>
+                                                <td><strong>Müller, Max</strong></td>
+                                                <td>⚽ Fußball, Turnen</td>
+                                                <td><span class="mockup-badge mockup-badge-success">Aktiv</span></td>
+                                                <td>80,00 €/J.</td>
+                                            </tr>
+                                            <tr>
+                                                <td>1088</td>
+                                                <td><strong>Müller, Sarah</strong></td>
+                                                <td>🎾 Tennis</td>
+                                                <td><span class="mockup-badge mockup-badge-success">Aktiv</span></td>
+                                                <td>60,00 €/J.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Beiträge & SEPA -->
+                    <div class="help-card" data-category="members" data-keywords="sepa lastschrift beitrag pain.008 iban gläubiger bank beitragsquittung einzug">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>💶 Beiträge &amp; SEPA-Lastschriften (pain.008 XML)</h3>
+                                <div class="small muted">Rechtssicherer Beitragseinzug direkt für das Online-Banking deiner Bank</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-success">Mitglieder</span>
+                        </div>
+                        <div class="help-card-body">
+                            <p>Generiere mit wenigen Klicks die offizielle SEPA-Sammellastschriftdatei nach Bundesbank-Standard (pain.008.001.02).</p>
+                            <ol class="help-steps">
+                                <li><strong>Stammdaten hinterlegen:</strong> Gläubiger-ID und Vereins-IBAN einmalig unter <a href="javascript:void(0)" data-jump-view="members_fees" style="color:var(--primary);text-decoration:underline">💶 Beiträge &amp; SEPA</a> &rarr; <strong>⚙️ Vereinsdaten</strong> eintragen.</li>
+                                <li><strong>IBAN-Prüfung:</strong> Das System prüft alle Mitglieder-IBANs automatisch auf die korrekte Prüfziffer (ISO 13616).</li>
+                                <li><strong>XML exportieren:</strong> Klicke auf <strong>🏦 SEPA-XML erzeugen</strong>, wähle Fälligkeitsdatum und lade die XML-Datei für deine Sparkasse, Volksbank etc. herunter.</li>
+                                <li><strong>Quittungen:</strong> Für Barzahler können fertige A4-Beitragsquittungen mit Vereinsstempel und Unterschrift gedruckt werden.</li>
+                            </ol>
+                            <div class="help-tip">
+                                💡 <strong>Tipp:</strong> Du kannst SEPA-Einzüge auch auf einzelne Abteilungen einschränken (z. B. nur Tennis-Sonderbeitrag).
+                            </div>
+                            <div class="help-mockup">
+                                <div class="mockup-topbar">
+                                    <span class="mockup-dot red"></span><span class="mockup-dot yellow"></span><span class="mockup-dot green"></span>
+                                    <span class="mockup-title">💶 SEPA-Beitragseinzug 2026 – SGV Böbingen 1920 e.V.</span>
+                                </div>
+                                <div class="mockup-content">
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                                        <div style="background:#1e293b;padding:8px;border-radius:4px;border:1px solid #334155">
+                                            <div style="font-size:0.68rem;color:#94a3b8">SEPA-Mandate geprüft</div>
+                                            <div style="font-size:1rem;font-weight:700;color:#10b981">1.180 / 1.250 ✅</div>
+                                        </div>
+                                        <div style="background:#1e293b;padding:8px;border-radius:4px;border:1px solid #334155">
+                                            <div style="font-size:0.68rem;color:#94a3b8">Gesamtsumme Einzug</div>
+                                            <div style="font-size:1rem;font-weight:700;color:#60a5fa">42.850,00 €</div>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;background:#0f172a;padding:6px 8px;border-radius:4px;border:1px solid #334155">
+                                        <span style="font-size:0.72rem;color:#cbd5e1">pain.008.001.02 XML bereit</span>
+                                        <span class="mockup-btn mockup-btn-primary">⬇️ SEPA-XML für Bank</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 6. Online-Mitgliedsantrag -->
+                    <div class="help-card" data-category="antrag" data-keywords="online antrag antrag.php signatur unterschrift touch handy smartphone double opt-in email sgv böbingen">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>📨 Online-Mitgliedsantrag (SGV Böbingen 1920 e.V.)</h3>
+                                <div class="small muted">Papierlose Aufnahme mit Smartphone-Signatur &amp; E-Mail-Bestätigung</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-success">Online-Antrag</span>
+                        </div>
+                        <div class="help-card-body">
+                            <p>Mit der öffentlichen Antragsseite (<code>antrag.php</code>) können Neumitglieder den Aufnahmeantrag direkt am Smartphone oder Computer ausfüllen und digital unterschreiben.</p>
+                            <ol class="help-steps">
+                                <li><strong>Link teilen:</strong> Öffne <a href="javascript:void(0)" data-jump-view="members_applications" style="color:var(--primary);text-decoration:underline">📨 Online-Anträge</a> und klicke auf <strong>🔗 Link kopieren</strong>. Diesen Link kannst du auf der Vereins-Website oder per WhatsApp verlinken.</li>
+                                <li><strong>Smartphone-Signatur:</strong> Der Antragsteller wählt seine Sparten, trägt SEPA-Daten ein und unterschreibt mit dem Finger auf dem Bildschirm.</li>
+                                <li><strong>Double-Opt-In:</strong> Das Neumitglied erhält eine Bestätigungs-E-Mail mit Klick-Link zur Verifizierung der Adresse.</li>
+                                <li><strong>1-Klick-Übernahme:</strong> In der VereinsCloud siehst du eingegangene Anträge mit Status <code>✅ Bestätigt</code>. Klicke auf <strong>➕ Übernehmen</strong>, um das Mitglied sofort vollständig in die Vereinskartei einzutragen!</li>
+                                <li><strong>Sparten anpassen:</strong> Über <strong>⚙️ Abteilungen verwalten</strong> kannst du Sportarten jederzeit ergänzen oder umbenennen.</li>
+                            </ol>
+                            <div class="help-tip">
+                                💡 <strong>Tipp:</strong> Über den Button <strong>👁️ Ansehen</strong> kannst du den Antrag jederzeit im originalen 1:1 A4-SGV-Drucklayout inklusive digitaler Unterschrift ansehen oder ausdrucken.
+                            </div>
+                            <div class="help-mockup">
+                                <div class="mockup-topbar">
+                                    <span class="mockup-dot red"></span><span class="mockup-dot yellow"></span><span class="mockup-dot green"></span>
+                                    <span class="mockup-title">antrag.php – SGV Böbingen 1920 e.V.</span>
+                                    <span style="margin-left:auto">
+                                        <span class="mockup-badge mockup-badge-success">✅ E-Mail verifiziert</span>
+                                    </span>
+                                </div>
+                                <div class="mockup-content">
+                                    <div style="background:#1e293b;padding:8px;border-radius:4px;margin-bottom:8px">
+                                        <div style="font-weight:600;color:#f8fafc;font-size:0.8rem">Antragsteller: Anna Schmidt (geb. 14.05.1998)</div>
+                                        <div style="font-size:0.72rem;color:#94a3b8">Abteilungen: 🤸 Turnen &amp; Gymnastik, 🎾 Tennis</div>
+                                        <div style="font-size:0.72rem;color:#94a3b8">IBAN: DE47 6135 •••• 8820 · SEPA-Mandat erteilt</div>
+                                    </div>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;background:#0f172a;padding:6px 8px;border-radius:4px;border:1px dashed #475569">
+                                        <span style="font-family:cursive;font-size:0.9rem;color:#60a5fa">~ Anna Schmidt ~ (Signatur)</span>
+                                        <span class="mockup-btn mockup-btn-success">➕ In Mitgliederliste übernehmen</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 7. Dateien, Ordner & Freigaben -->
+                    <div class="help-card" data-category="files" data-keywords="dateien ordner freigabe passwort link kontextmenü drag drop upload teilen">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>📁 Dateien, Ordner &amp; Externe Freigaben</h3>
+                                <div class="small muted">Dokumente organisieren, hochladen und sicher per Link teilen</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-info">Dateien</span>
+                        </div>
+                        <div class="help-card-body">
+                            <p>Speichere alle Vereinsdokumente sicher an einem zentralen Ort und teile sie gezielt mit Übungsleitern oder externen Partnern.</p>
+                            <ol class="help-steps">
+                                <li><strong>Drag &amp; Drop:</strong> Ziehe Dateien oder ganze Ordner einfach direkt aus deinem Windows/Mac-Explorer in das Browserfenster.</li>
+                                <li><strong>Kontextmenü:</strong> Rechtsklick auf eine Datei oder leere Fläche öffnet das Menü mit <strong>Neu erstellen</strong>, <strong>Umbenennen</strong>, <strong>Verschieben</strong> und <strong>Löschen</strong>.</li>
+                                <li><strong>Freigabelink erstellen:</strong> Rechtsklick auf Datei/Ordner &rarr; <strong>🔗 Freigeben</strong>. Du kannst ein Passwort und ein automatisches Ablaufdatum vergeben.</li>
+                                <li><strong>Papierkorb:</strong> Versehentlich gelöschte Dateien können im Menü links über <strong>🗑️ Papierkorb</strong> mit 1 Klick wiederhergestellt werden.</li>
+                            </ol>
+                            <div class="help-tip">
+                                💡 <strong>Tipp:</strong> Mehrfachauswahl: Halte die Taste <code>Strg</code> (oder <code>Cmd</code> auf Mac) gedrückt, um mehrere Dateien gleichzeitig auszuwählen und herunterzuladen.
+                            </div>
+                            <div class="help-mockup">
+                                <div class="mockup-topbar">
+                                    <span class="mockup-dot red"></span><span class="mockup-dot yellow"></span><span class="mockup-dot green"></span>
+                                    <span class="mockup-title">📁 Hauptverein / Fußball / Jugendturnier</span>
+                                </div>
+                                <div class="mockup-content">
+                                    <div style="background:#1e293b;padding:6px 10px;border-radius:4px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+                                        <span>📊 Spielplan_E-Jugend.xlsx</span>
+                                        <span class="mockup-badge mockup-badge-info">🔗 Freigegeben (Passwort)</span>
+                                    </div>
+                                    <div style="background:#1e293b;padding:6px 10px;border-radius:4px;display:flex;align-items:center;justify-content:space-between">
+                                        <span>🖼️ Mannschaftsfoto_2026.jpg</span>
+                                        <span class="mockup-btn">⬇️ Download</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 8. Kalender & Termine -->
+                    <div class="help-card" data-category="calendar" data-keywords="kalender termine veranstaltungen monat woche jahr ical platzbelegung spielbetrieb">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>📅 Vereinskalender &amp; Termine</h3>
+                                <div class="small muted">Sitzungen, Trainingszeiten und Spielbetrieb in der Übersicht</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-warning">Kalender</span>
+                        </div>
+                        <div class="help-card-body">
+                            <p>Verwalte Veranstaltungen, Platzbelegungen und Ausschusssitzungen im gemeinsamen Vereinskalender.</p>
+                            <ol class="help-steps">
+                                <li><strong>Kalender öffnen:</strong> Klicke im Menü links auf <a href="javascript:void(0)" data-jump-view="calendar" style="color:var(--primary);text-decoration:underline">📅 Kalender</a>.</li>
+                                <li><strong>Ansichten wechseln:</strong> Nutze die Reiter <strong>Monat</strong>, <strong>Woche</strong> oder <strong>Jahr</strong> für die passende Übersicht.</li>
+                                <li><strong>Termin anlegen:</strong> Klicke direkt auf einen Tag, trage Titel, Ort und Uhrzeit ein und wähle eine Farbkategorie (z. B. Spielbetrieb, Vorstand, Feste).</li>
+                                <li><strong>Abonnieren:</strong> Binde den Vereinskalender via iCal-Link direkt in dein Smartphone (Apple Kalender, Google Kalender, Outlook) ein.</li>
+                            </ol>
+                            <div class="help-tip">
+                                💡 <strong>Tipp:</strong> In der Wochenansicht siehst du die genaue Stundenbelegung von Sporthalle und Rasenplatz auf einen Blick.
+                            </div>
+                            <div class="help-mockup">
+                                <div class="mockup-topbar">
+                                    <span class="mockup-dot red"></span><span class="mockup-dot yellow"></span><span class="mockup-dot green"></span>
+                                    <span class="mockup-title">📅 Vereinskalender – November 2026</span>
+                                </div>
+                                <div class="mockup-content">
+                                    <div style="display:flex;flex-direction:column;gap:6px">
+                                        <div style="background:#1e293b;border-left:3px solid #3b82f6;padding:4px 8px;border-radius:0 4px 4px 0">
+                                            <div style="font-weight:600;color:#60a5fa">Do 19. Nov · 19:30 Uhr</div>
+                                            <div style="font-size:0.72rem;color:#cbd5e1">Ausschusssitzung (Vereinsheim)</div>
+                                        </div>
+                                        <div style="background:#1e293b;border-left:3px solid #10b981;padding:4px 8px;border-radius:0 4px 4px 0">
+                                            <div style="font-weight:600;color:#34d399">Sa 21. Nov · 15:30 Uhr</div>
+                                            <div style="font-size:0.72rem;color:#cbd5e1">SGV Böbingen vs. FC Bargau (Rasenplatz 1)</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 9. Sicherheit, Passkeys & 2FA -->
+                    <div class="help-card" data-category="security" data-keywords="sicherheit passkeys 2fa fingerabdruck faceid touchid cryptovault verschlüsselung passwort">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>🔒 Sicherheit, Passkeys &amp; Zwei-Faktor-Schutz</h3>
+                                <div class="small muted">Biometrischer Login ohne Passwort und Ende-zu-Ende-Verschlüsselung</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-danger">Sicherheit</span>
+                        </div>
+                        <div class="help-card-body">
+                            <p>Schütze sensible Vereins- und Kontodaten vor unbefugtem Zugriff mit modernen Sicherheitsstandards.</p>
+                            <ol class="help-steps">
+                                <li><strong>Passkeys einrichten:</strong> Öffne oben rechts dein Profilmenü &rarr; <strong>Sicherheit</strong> und registriere dein Smartphone oder Laptop (Face ID, Touch ID, Windows Hello). Kein Passwort-Eintippen mehr nötig!</li>
+                                <li><strong>Zwei-Faktor-Authentifizierung (2FA):</strong> Aktiviere den E-Mail-Einmalcode. Beim Login von einem neuen Gerät wird ein 6-stelliger Bestätigungscode per E-Mail verlangt.</li>
+                                <li><strong>CryptoVault:</strong> Speichere hochsensible Dateien (wie Übungsleiterverträge) im Tresor mit clientseitiger AES-256-Verschlüsselung.</li>
+                            </ol>
+                            <div class="help-tip">
+                                💡 <strong>Tipp:</strong> Du kannst mehrere Passkeys anlegen (z. B. für dein Dienst-Notebook und dein privates Smartphone).
+                            </div>
+                            <div class="help-mockup">
+                                <div class="mockup-topbar">
+                                    <span class="mockup-dot red"></span><span class="mockup-dot yellow"></span><span class="mockup-dot green"></span>
+                                    <span class="mockup-title">🔒 Sicherheitseinstellungen &amp; Passkeys</span>
+                                </div>
+                                <div class="mockup-content">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:#1e293b;border-radius:4px;margin-bottom:6px">
+                                        <div>
+                                            <div style="font-weight:600">📱 Touch ID / Face ID (Passkey)</div>
+                                            <div style="font-size:0.7rem;color:#94a3b8">Erfolgreich registriert</div>
+                                        </div>
+                                        <span class="mockup-badge mockup-badge-success">Aktiv ✅</span>
+                                    </div>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:#1e293b;border-radius:4px">
+                                        <div>
+                                            <div style="font-weight:600">✉️ 2-Faktor-Code per E-Mail</div>
+                                            <div style="font-size:0.7rem;color:#94a3b8">Schützt bei Passwort-Verlust</div>
+                                        </div>
+                                        <span class="mockup-badge mockup-badge-success">Aktiv ✅</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 10. Häufige Fragen & FAQ -->
+                    <div class="help-card" data-category="faq" data-keywords="faq fragen tipps hilfe pwa smartphone speicher gelöscht wiederherstellen">
+                        <div class="help-card-header">
+                            <div>
+                                <h3>💡 Häufig gestellte Fragen (FAQ)</h3>
+                                <div class="small muted">Schnelle Antworten auf die wichtigsten Fragen im Vereinsalltag</div>
+                            </div>
+                            <span class="mockup-badge mockup-badge-warning">FAQ</span>
+                        </div>
+                        <div class="help-card-body">
+                            <div style="display:flex;flex-direction:column;gap:10px">
+                                <div>
+                                    <strong style="color:var(--text);font-size:0.9rem">📱 Funktioniert VereinsCloud auch auf dem Smartphone?</strong>
+                                    <p style="margin-top:2px;font-size:0.85rem">Ja, VereinsCloud ist vollständig für Handys und Tablets optimiert. Du kannst die Seite im Safari- oder Chrome-Menü über <em>"Zum Home-Bildschirm hinzufügen"</em> wie eine echte App installieren.</p>
+                                </div>
+                                <div>
+                                    <strong style="color:var(--text);font-size:0.9rem">🗑️ Kann ich versehentlich gelöschte Dateien retten?</strong>
+                                    <p style="margin-top:2px;font-size:0.85rem">Ja, gelöschte Dateien landen im <strong>Papierkorb</strong>. Dort kannst du sie jederzeit markieren und mit einem Klick auf <em>Wiederherstellen</em> an ihren ursprünglichen Speicherort zurückholen.</p>
+                                </div>
+                                <div>
+                                    <strong style="color:var(--text);font-size:0.9rem">🚪 Was passiert, wenn ein Mitglied den Verein verlässt?</strong>
+                                    <p style="margin-top:2px;font-size:0.85rem">Ändere den Status in der Karteikarte einfach auf <em>"Ausgetreten"</em>. Das Mitglied wird aus den aktiven Listen und SEPA-Lastschriften entfernt, bleibt aber für vereinsrechtliche und steuerliche Nachweise im Archiv erhalten.</p>
+                                </div>
+                                <div>
+                                    <strong style="color:var(--text);font-size:0.9rem">📤 Wie groß dürfen hochgeladene Dateien sein?</strong>
+                                    <p style="margin-top:2px;font-size:0.85rem">VereinsCloud nutzt intelligentes Chunking (Stückelung) beim Upload. Dadurch können auch große Videoaufnahmen von Spielen oder komplette Fotoarchive problemlos hochgeladen werden.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="help-no-results" class="empty-state hidden" style="padding:3rem 1rem;text-align:center">
+                    <div style="font-size:2.5rem;margin-bottom:0.5rem">🔍</div>
+                    <h3>Keine passenden Anleitungen gefunden</h3>
+                    <p class="muted">Versuche es mit einem anderen Suchbegriff oder wähle oben die Kategorie "Alle Themen".</p>
+                    <button type="button" class="btn btn-secondary" id="btn-help-reset-search" style="margin-top:0.75rem">Alle Themen anzeigen</button>
+                </div>
+            </div>
+        `;
+
+        // Interactive Filtering & Search
+        const searchInput = $('#help-search-input');
+        const pills = $$('#help-pills .help-pill');
+        const cards = $$('#help-cards-grid .help-card');
+        const noResults = $('#help-no-results');
+
+        let activeCat = 'all';
+
+        function filterHelp() {
+            const query = (searchInput?.value || '').trim().toLowerCase();
+            let visibleCount = 0;
+
+            cards.forEach((card) => {
+                const cardCat = card.dataset.category || '';
+                const cardText = (card.textContent + ' ' + (card.dataset.keywords || '')).toLowerCase();
+
+                const matchesCat = (activeCat === 'all' || cardCat === activeCat);
+                const matchesQuery = !query || cardText.includes(query);
+
+                if (matchesCat && matchesQuery) {
+                    card.style.display = '';
+                    visibleCount++;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+
+            if (noResults) {
+                noResults.classList.toggle('hidden', visibleCount > 0);
+            }
+        }
+
+        pills.forEach((pill) => {
+            pill.addEventListener('click', () => {
+                pills.forEach((p) => p.classList.remove('active'));
+                pill.classList.add('active');
+                activeCat = pill.dataset.cat || 'all';
+                filterHelp();
+            });
+        });
+
+        searchInput?.addEventListener('input', () => {
+            filterHelp();
+        });
+
+        $('#btn-help-reset-search')?.addEventListener('click', () => {
+            if (searchInput) searchInput.value = '';
+            pills.forEach((p) => p.classList.toggle('active', p.dataset.cat === 'all'));
+            activeCat = 'all';
+            filterHelp();
+        });
+
+        // Jump view handlers
+        container.querySelectorAll('[data-jump-view]').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetView = btn.dataset.jumpView;
+                const navBtn = $(`[data-view="${targetView}"]`);
+                if (navBtn) {
+                    navBtn.click();
+                } else {
+                    state.view = targetView;
+                    state.currentFolderId = null;
+                    state.search = '';
+                    loadCurrentView();
+                }
+            });
+        });
     }
 
     // Club Member Management ("🪪 Mitglieder") View
