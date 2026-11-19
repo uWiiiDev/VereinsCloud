@@ -2554,6 +2554,144 @@
         openNewPresentationModal();
     });
 
+    // PPTX XML Escape Helper
+    function escXml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    }
+
+    // PPTX Generator: Build clean OpenXML zip with text and images
+    async function buildPresentationPptxZip(slides) {
+        if (typeof JSZip === 'undefined') {
+            throw new Error('JSZip ist nicht verfügbar.');
+        }
+        const zip = new JSZip();
+
+        // 1. [Content_Types].xml
+        const overrides = [
+            '<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>',
+        ];
+        slides.forEach((_, i) => {
+            overrides.push(`<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`);
+        });
+
+        zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="png" ContentType="image/png"/>
+  <Default Extension="jpg" ContentType="image/jpeg"/>
+  <Default Extension="jpeg" ContentType="image/jpeg"/>
+  <Default Extension="gif" ContentType="image/gif"/>
+  <Default Extension="webp" ContentType="image/webp"/>
+  <Default Extension="svg" ContentType="image/svg+xml"/>
+  ${overrides.join('')}
+</Types>`);
+
+        // 2. _rels/.rels
+        zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>`);
+
+        // 3. ppt/presentation.xml
+        const sldIds = slides.map((_, i) => `<p:sldId id="${256 + i}" r:id="rId${i + 1}"/>`).join('');
+        zip.file('ppt/presentation.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:sldIdLst>${sldIds}</p:sldIdLst>
+  <p:sldSz cx="12192000" cy="6858000" type="screen16x9"/>
+  <p:notesSz cx="6858000" cy="9144000"/>
+</p:presentation>`);
+
+        // 4. ppt/_rels/presentation.xml.rels
+        const presRels = slides.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>`).join('');
+        zip.file('ppt/_rels/presentation.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  ${presRels}
+</Relationships>`);
+
+        // 5. Slides, Images and Relationships
+        for (let i = 0; i < slides.length; i++) {
+            const s = slides[i];
+            const slideNum = i + 1;
+            const hasImages = Array.isArray(s.images) && s.images.length > 0;
+            const hasBullets = Array.isArray(s.bodyLines) && s.bodyLines.length > 0;
+
+            const slideRels = [];
+            if (hasImages) {
+                s.images.forEach((img, imgIdx) => {
+                    const relId = `rIdImg${imgIdx + 1}`;
+                    const ext = (img.ext || 'png').toLowerCase();
+                    const mediaFileName = `slide_${slideNum}_img_${imgIdx + 1}.${ext}`;
+                    zip.file(`ppt/media/${mediaFileName}`, img.base64, { base64: true });
+                    slideRels.push(`<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaFileName}"/>`);
+                });
+                zip.file(`ppt/slides/_rels/slide${slideNum}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  ${slideRels.join('')}
+</Relationships>`);
+            }
+
+            const titleShape = `
+        <p:sp>
+          <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+          <p:spPr><a:xfrm><a:off x="838200" y="500000"/><a:ext cx="10515600" cy="900000"/></a:xfrm></p:spPr>
+          <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="de-DE" sz="3600" b="1"/><a:t>${escXml(s.title || 'Folie ' + slideNum)}</a:t></a:r></a:p></p:txBody>
+        </p:sp>`;
+
+            let bodyShape = '';
+            if (hasBullets) {
+                const textWidth = hasImages ? '5200000' : '10515600';
+                const bulletXml = s.bodyLines.map((line) => `
+              <a:p><a:pPr lvl="0"><a:buChar char="•"/></a:pPr><a:r><a:rPr lang="de-DE" sz="2000"/><a:t>${escXml(line)}</a:t></a:r></a:p>`).join('');
+                bodyShape = `
+        <p:sp>
+          <p:nvSpPr><p:cNvPr id="3" name="Content"/><p:cNvSpPr/><p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr>
+          <p:spPr><a:xfrm><a:off x="838200" y="1600000"/><a:ext cx="${textWidth}" cy="4600000"/></a:xfrm></p:spPr>
+          <p:txBody><a:bodyPr/><a:lstStyle/>${bulletXml}</p:txBody>
+        </p:sp>`;
+            }
+
+            let picShapes = '';
+            if (hasImages) {
+                s.images.forEach((img, imgIdx) => {
+                    const relId = `rIdImg${imgIdx + 1}`;
+                    const picX = hasBullets ? '6400000' : '2500000';
+                    const picY = '1600000';
+                    const picCx = hasBullets ? '4950000' : '7192000';
+                    const picCy = '4600000';
+                    picShapes += `
+        <p:pic>
+          <p:nvPicPr><p:cNvPr id="${10 + imgIdx}" name="Picture ${imgIdx + 1}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>
+          <p:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+          <p:spPr><a:xfrm><a:off x="${picX}" y="${picY}"/><a:ext cx="${picCx}" cy="${picCy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+        </p:pic>`;
+                });
+            }
+
+            const slideXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      ${titleShape}
+      ${bodyShape}
+      ${picShapes}
+    </p:spTree>
+  </p:cSld>
+</p:sld>`;
+            zip.file(`ppt/slides/slide${slideNum}.xml`, slideXml);
+        }
+
+        return await zip.generateAsync({ type: 'base64' });
+    }
+
     function openNewPresentationModal() {
         openModal('📽️ Neue PowerPoint-Präsentation erstellen', `
             <form id="new-pptx-form">
@@ -2586,17 +2724,14 @@
             }
 
             try {
-                const zip = new JSZip();
-                zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>');
-                zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>');
-                zip.file('ppt/presentation.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldIdLst><p:sldId id="256" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"/></p:sldIdLst></p:presentation>');
-                zip.file('ppt/_rels/presentation.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>');
-
-                const paraXml = [title, ...bodyLines].map((t) => `<p:sp><p:txBody><a:p><a:r><a:t>${esc(t)}</a:t></a:r></a:p></p:txBody></p:sp>`).join('');
-                zip.file('ppt/slides/slide1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree>${paraXml}</p:spTree></p:cSld></p:sld>`);
-
-                const b64 = await zip.generateAsync({ type: 'base64' });
-                await apiPost('save_binary_base64', {
+                const initialSlide = {
+                    number: 1,
+                    title: title || 'Präsentation',
+                    bodyLines: bodyLines.length > 0 ? bodyLines : ['Willkommen zur Präsentation'],
+                    images: [],
+                };
+                const b64 = await buildPresentationPptxZip([initialSlide]);
+                const res = await apiPost('save_binary_base64', {
                     folder_id: state.currentFolderId,
                     name,
                     base64: b64,
@@ -2604,6 +2739,11 @@
                 closeModal();
                 toast(`Präsentation "${name}" erstellt!`);
                 loadCurrentView();
+                if (res && res.file && res.file.id) {
+                    const dlResp = await fetch(`api.php?action=download&id=${res.file.id}`);
+                    const buf = await dlResp.arrayBuffer();
+                    await openOfficePresentationViewer(res.file.id, res.file.name, buf);
+                }
             } catch (err) {
                 toast(err.message, 'error');
             }
@@ -2910,7 +3050,7 @@
         });
     }
 
-    // --- Office 3: Presentation Viewer & Stage (Powerpoint PPTX) ---
+    // --- Office 3: Presentation Viewer & Editor (PowerPoint PPTX) ---
     async function launchOfficePresentation(file) {
         try {
             toast('Lade Präsentation…');
@@ -2924,21 +3064,23 @@
 
     async function openOfficePresentationViewer(fileId, fileName, arrayBufferData) {
         let slides = [];
+        let loadedZip = null;
         if (typeof JSZip !== 'undefined' && arrayBufferData) {
             try {
-                const zip = await JSZip.loadAsync(arrayBufferData);
+                loadedZip = await JSZip.loadAsync(arrayBufferData);
                 const slideFiles = [];
-                zip.forEach((relPath) => {
-                    const m = relPath.match(/^ppt\/slides\/slide(\d+)\.xml$/);
+                loadedZip.forEach((relPath) => {
+                    const m = relPath.match(/^ppt\/slides\/slide(\d+)\.xml$/i);
                     if (m) {
                         slideFiles.push({ num: parseInt(m[1], 10), path: relPath });
                     }
                 });
                 slideFiles.sort((a, b) => a.num - b.num);
 
+                const parser = new DOMParser();
+
                 for (const sf of slideFiles) {
-                    const xmlText = await zip.file(sf.path).async('string');
-                    const parser = new DOMParser();
+                    const xmlText = await loadedZip.file(sf.path).async('string');
                     const doc = parser.parseFromString(xmlText, 'text/xml');
                     const paragraphs = Array.from(doc.querySelectorAll('a\\:p, p'));
                     const pTexts = paragraphs.map((p) => {
@@ -2948,11 +3090,87 @@
 
                     const title = pTexts[0] || `Folie ${sf.num}`;
                     const contentList = pTexts.slice(1);
+
+                    // Extract embedded images for this slide
+                    const slideImages = [];
+                    const relsPath = `ppt/slides/_rels/slide${sf.num}.xml.rels`;
+                    const relsFile = loadedZip.file(relsPath);
+                    if (relsFile) {
+                        try {
+                            const relsXml = await relsFile.async('string');
+                            const relsDoc = parser.parseFromString(relsXml, 'text/xml');
+                            const relEls = Array.from(relsDoc.querySelectorAll('Relationship, relationship'));
+                            for (const r of relEls) {
+                                const type = r.getAttribute('Type') || '';
+                                const target = r.getAttribute('Target') || '';
+                                const isImg = type.includes('image') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(target);
+                                if (isImg && target) {
+                                    let cleanPath = target;
+                                    if (cleanPath.startsWith('../')) {
+                                        cleanPath = 'ppt/' + cleanPath.substring(3);
+                                    } else if (cleanPath.startsWith('/')) {
+                                        cleanPath = cleanPath.substring(1);
+                                    } else if (!cleanPath.startsWith('ppt/')) {
+                                        cleanPath = 'ppt/slides/' + cleanPath;
+                                    }
+                                    cleanPath = cleanPath.replace(/ppt\/slides\/\.\.\//g, 'ppt/');
+
+                                    let f = loadedZip.file(cleanPath);
+                                    if (!f) {
+                                        const baseName = target.split('/').pop();
+                                        f = loadedZip.file('ppt/media/' + baseName);
+                                        if (f) cleanPath = 'ppt/media/' + baseName;
+                                    }
+                                    if (f) {
+                                        const ext = cleanPath.split('.').pop().toLowerCase();
+                                        const mime = ext === 'png' ? 'image/png' : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : ext === 'svg' ? 'image/svg+xml' : ext === 'webp' ? 'image/webp' : 'image/png';
+                                        const b64 = await f.async('base64');
+                                        slideImages.push({
+                                            id: 'img_' + Math.random().toString(36).substr(2, 9),
+                                            name: cleanPath.split('/').pop(),
+                                            ext,
+                                            mime,
+                                            base64: b64,
+                                            dataUrl: `data:${mime};base64,${b64}`,
+                                        });
+                                    }
+                                }
+                            }
+                        } catch (relsErr) {
+                            console.warn('Error reading slide rels:', relsErr);
+                        }
+                    }
+
                     slides.push({
+                        id: 'sld_' + sf.num + '_' + Math.random().toString(36).substr(2, 6),
                         number: sf.num,
                         title,
                         bodyLines: contentList,
+                        images: slideImages,
                     });
+                }
+
+                // Fallback: If 1 slide and no rels images found, check ppt/media/
+                if (slides.length === 1 && slides[0].images.length === 0) {
+                    const mediaFiles = [];
+                    loadedZip.forEach((p) => {
+                        if (/^ppt\/media\/.*\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(p)) {
+                            mediaFiles.push(p);
+                        }
+                    });
+                    for (const mp of mediaFiles) {
+                        const ext = mp.split('.').pop().toLowerCase();
+                        const mime = ext === 'png' ? 'image/png' : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : ext === 'svg' ? 'image/svg+xml' : ext === 'webp' ? 'image/webp' : 'image/png';
+                        const b64 = await loadedZip.file(mp).async('base64');
+                        slides[0].images.push({
+                            id: 'img_' + Math.random().toString(36).substr(2, 9),
+                            name: mp.split('/').pop(),
+                            ext,
+                            mime,
+                            base64: b64,
+                            dataUrl: `data:${mime};base64,${b64}`,
+                        });
+                    }
                 }
             } catch (err) {
                 console.warn('PPTX parse error:', err);
@@ -2962,14 +3180,17 @@
         if (slides.length === 0) {
             slides = [
                 {
+                    id: 'sld_1',
                     number: 1,
                     title: fileName.replace(/\.[^/.]+$/, ''),
-                    bodyLines: ['Präsentation konnte geöffnet werden.', 'Hinweis: Diese Folie dient als Platzhalter oder die Präsentation enthält vorwiegend eingebettete Bildgrafiken.'],
+                    bodyLines: ['Willkommen zu Ihrer Präsentation.', 'Klicken Sie auf „✏️ Folie bearbeiten“, um Texte oder Bilder einzufügen.'],
+                    images: [],
                 },
             ];
         }
 
         let currentSlideIdx = 0;
+        let isDrawerOpen = false;
 
         openModal(`📽️ Präsentation: ${fileName}`, `
             <div class="pptx-viewer-wrap">
@@ -2978,54 +3199,191 @@
                         <span>📽️ ${esc(fileName)}</span>
                         <span class="badge" id="pptx-slide-counter">Folie 1 von ${slides.length}</span>
                     </div>
-                    <div style="display:flex;gap:0.4rem;align-items:center;margin-left:auto">
+                    <div style="display:flex;gap:0.35rem;align-items:center;margin-left:auto;flex-wrap:wrap">
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-pptx-toggle-edit" title="Aktuelle Folie bearbeiten">✏️ Folie bearbeiten</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-pptx-add-slide" title="Neue Folie einfügen">➕ Neue Folie</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-pptx-del-slide" title="Aktuelle Folie löschen">🗑️ Folie löschen</button>
                         <button type="button" class="btn btn-ghost btn-sm" id="btn-pptx-prev" title="Vorherige Folie (Pfeil links)">◀ Zurück</button>
                         <button type="button" class="btn btn-primary btn-sm" id="btn-pptx-next" title="Nächste Folie (Pfeil rechts / Leertaste)">Weiter ▶</button>
                         <button type="button" class="btn btn-ghost btn-sm" id="btn-pptx-fullscreen" title="Im Vollbild präsentieren">⛶ Vollbild</button>
-                        <a class="btn btn-ghost btn-sm" href="api.php?action=download&id=${fileId}">⬇️ Herunterladen</a>
+                        <button type="button" class="btn btn-success btn-sm" id="btn-pptx-save" title="In der Cloud speichern">💾 Speichern</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-pptx-download" title="Präsentation als PPTX herunterladen">⬇️ Herunterladen</button>
                     </div>
                 </div>
 
                 <div class="pptx-main-area">
-                    <div class="pptx-thumb-nav" id="pptx-thumb-list">
-                        ${slides.map((s, idx) => `
-                            <div class="pptx-thumb-item ${idx === 0 ? 'active' : ''}" data-slide-idx="${idx}">
-                                <strong>Folie ${s.number}</strong>
-                                <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.title)}</div>
-                            </div>
-                        `).join('')}
-                    </div>
+                    <div class="pptx-thumb-nav" id="pptx-thumb-list"></div>
 
                     <div class="pptx-stage-wrap" id="pptx-stage">
                         <div class="pptx-slide-canvas" id="pptx-canvas">
                             <div class="pptx-slide-title" id="pptx-slide-title"></div>
-                            <div class="pptx-slide-body" id="pptx-slide-body"></div>
+                            <div class="pptx-slide-content-area" id="pptx-slide-content"></div>
                             <div class="pptx-slide-num-badge" id="pptx-slide-badge"></div>
+                        </div>
+                    </div>
+
+                    <div class="pptx-edit-drawer hidden" id="pptx-edit-drawer">
+                        <div class="pptx-edit-drawer-header">
+                            <strong id="pptx-edit-drawer-title">✏️ Folie bearbeiten</strong>
+                            <button type="button" class="btn btn-ghost btn-sm" id="btn-pptx-close-drawer">✕</button>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0.75rem">
+                            <label style="font-size:0.85rem;font-weight:600;display:block;margin-bottom:0.3rem">Folientitel</label>
+                            <input type="text" class="input" id="pptx-edit-inp-title" placeholder="Folientitel eingeben…">
+                        </div>
+                        <div class="form-group" style="margin-bottom:0.75rem">
+                            <label style="font-size:0.85rem;font-weight:600;display:block;margin-bottom:0.3rem">Inhalt / Aufzählungspunkte (ein Punkt pro Zeile)</label>
+                            <textarea class="input" id="pptx-edit-inp-bullets" rows="6" placeholder="Begrüßung&#10;Hauptthemen&#10;Fazit"></textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom:1rem">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem">
+                                <label style="font-size:0.85rem;font-weight:600">Bilder auf dieser Folie</label>
+                                <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">
+                                    🖼️ Bild hinzufügen
+                                    <input type="file" id="pptx-edit-inp-file" accept="image/*" style="display:none">
+                                </label>
+                            </div>
+                            <div id="pptx-edit-images-list"></div>
+                        </div>
+                        <div style="margin-top:auto;display:flex;gap:0.5rem">
+                            <button type="button" class="btn btn-secondary btn-block" id="btn-pptx-drawer-done">Fertig</button>
                         </div>
                     </div>
                 </div>
             </div>
         `, 'fullscreen');
 
+        function renderThumbnails() {
+            const listEl = $('#pptx-thumb-list');
+            if (!listEl) return;
+            listEl.innerHTML = slides.map((s, idx) => `
+                <div class="pptx-thumb-item ${idx === currentSlideIdx ? 'active' : ''}" data-slide-idx="${idx}">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <strong>Folie ${s.number}</strong>
+                        ${s.images && s.images.length > 0 ? `<span class="pptx-thumb-img-badge">🖼️ ${s.images.length}</span>` : ''}
+                    </div>
+                    <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.title || 'Ohne Titel')}</div>
+                    ${s.images && s.images[0] ? `<img src="${s.images[0].dataUrl}" class="pptx-thumb-preview-img" alt="">` : ''}
+                </div>
+            `).join('');
+
+            $$('#pptx-thumb-list [data-slide-idx]').forEach((el) => {
+                el.addEventListener('click', () => {
+                    renderSlide(Number(el.dataset.slideIdx));
+                });
+            });
+        }
+
+        function renderSlideContent(s) {
+            const contentEl = $('#pptx-slide-content');
+            if (!contentEl) return;
+
+            const hasBullets = Array.isArray(s.bodyLines) && s.bodyLines.length > 0;
+            const hasImages = Array.isArray(s.images) && s.images.length > 0;
+
+            const bulletHtml = hasBullets
+                ? s.bodyLines.map((line) => `<p style="margin: 0.6rem 0;">• ${esc(line)}</p>`).join('')
+                : '';
+
+            const imgHtml = hasImages
+                ? s.images.map((img) => `<img src="${img.dataUrl}" alt="${esc(img.name || 'Bild')}">`).join('')
+                : '';
+
+            if (hasBullets && hasImages) {
+                contentEl.className = 'pptx-slide-content-area';
+                contentEl.innerHTML = `
+                    <div class="pptx-slide-text-col">${bulletHtml}</div>
+                    <div class="pptx-slide-media-col">${imgHtml}</div>
+                `;
+            } else if (!hasBullets && hasImages) {
+                contentEl.className = 'pptx-slide-content-area media-only';
+                contentEl.innerHTML = `<div class="pptx-slide-media-col">${imgHtml}</div>`;
+            } else if (hasBullets && !hasImages) {
+                contentEl.className = 'pptx-slide-content-area';
+                contentEl.innerHTML = `<div class="pptx-slide-text-col">${bulletHtml}</div>`;
+            } else {
+                contentEl.className = 'pptx-slide-content-area';
+                contentEl.innerHTML = `<div class="pptx-slide-text-col"><p class="muted" style="margin-top:2rem;font-style:italic">Klicken Sie auf „✏️ Folie bearbeiten“, um Texte oder Bilder einzufügen.</p></div>`;
+            }
+        }
+
+        function renderEditDrawerImages(s) {
+            const listEl = $('#pptx-edit-images-list');
+            if (!listEl) return;
+            if (!s.images || s.images.length === 0) {
+                listEl.innerHTML = '<div class="muted small" style="font-style:italic">Keine Bilder auf dieser Folie</div>';
+                return;
+            }
+            listEl.innerHTML = s.images.map((img, imgIdx) => `
+                <div class="pptx-edit-img-card">
+                    <div style="display:flex;align-items:center;gap:0.5rem;overflow:hidden">
+                        <img src="${img.dataUrl}" alt="">
+                        <span class="small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${esc(img.name || `Bild ${imgIdx + 1}`)}</span>
+                    </div>
+                    <button type="button" class="btn btn-ghost btn-sm" data-del-img-idx="${imgIdx}" title="Bild entfernen">🗑️</button>
+                </div>
+            `).join('');
+
+            $$('#pptx-edit-images-list [data-del-img-idx]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const idx = Number(btn.dataset.delImgIdx);
+                    s.images.splice(idx, 1);
+                    renderSlideContent(s);
+                    renderEditDrawerImages(s);
+                    renderThumbnails();
+                    toast('Bild entfernt.');
+                });
+            });
+        }
+
+        function populateDrawer(s) {
+            const drawerTitle = $('#pptx-edit-drawer-title');
+            const inpTitle = $('#pptx-edit-inp-title');
+            const inpBullets = $('#pptx-edit-inp-bullets');
+            if (drawerTitle) drawerTitle.textContent = `✏️ Folie ${s.number} bearbeiten`;
+            if (inpTitle) inpTitle.value = s.title || '';
+            if (inpBullets) inpBullets.value = (s.bodyLines || []).join('\n');
+            renderEditDrawerImages(s);
+        }
+
+        function openEditDrawer() {
+            isDrawerOpen = true;
+            const drawer = $('#pptx-edit-drawer');
+            if (drawer) drawer.classList.remove('hidden');
+            const toggleBtn = $('#btn-pptx-toggle-edit');
+            if (toggleBtn) {
+                toggleBtn.classList.remove('btn-primary');
+                toggleBtn.classList.add('btn-secondary');
+                toggleBtn.textContent = '✕ Schließen';
+            }
+            populateDrawer(slides[currentSlideIdx]);
+            $('#pptx-edit-inp-title')?.focus();
+        }
+
+        function closeEditDrawer() {
+            isDrawerOpen = false;
+            const drawer = $('#pptx-edit-drawer');
+            if (drawer) drawer.classList.add('hidden');
+            const toggleBtn = $('#btn-pptx-toggle-edit');
+            if (toggleBtn) {
+                toggleBtn.classList.remove('btn-secondary');
+                toggleBtn.classList.add('btn-primary');
+                toggleBtn.textContent = '✏️ Folie bearbeiten';
+            }
+        }
+
         function renderSlide(idx) {
             currentSlideIdx = Math.max(0, Math.min(idx, slides.length - 1));
             const s = slides[currentSlideIdx];
             const titleEl = $('#pptx-slide-title');
-            const bodyEl = $('#pptx-slide-body');
             const badgeEl = $('#pptx-slide-badge');
             const counterEl = $('#pptx-slide-counter');
 
-            if (titleEl) titleEl.textContent = s.title;
+            if (titleEl) titleEl.textContent = s.title || 'Ohne Titel';
             if (badgeEl) badgeEl.textContent = `${s.number} / ${slides.length}`;
             if (counterEl) counterEl.textContent = `Folie ${currentSlideIdx + 1} von ${slides.length}`;
 
-            if (bodyEl) {
-                if (s.bodyLines.length > 0) {
-                    bodyEl.innerHTML = s.bodyLines.map((line) => `<p style="margin: 0.6rem 0;">• ${esc(line)}</p>`).join('');
-                } else {
-                    bodyEl.innerHTML = '<p class="muted" style="margin-top:2rem;font-style:italic">Titel- oder Inhaltsfolie</p>';
-                }
-            }
+            renderSlideContent(s);
 
             $$('#pptx-thumb-list .pptx-thumb-item').forEach((item, i) => {
                 item.classList.toggle('active', i === currentSlideIdx);
@@ -3033,17 +3391,173 @@
                     item.scrollIntoView({ block: 'nearest' });
                 }
             });
+
+            if (isDrawerOpen) {
+                populateDrawer(s);
+            }
         }
 
+        // Initial render
+        renderThumbnails();
         renderSlide(0);
 
+        // Edit Drawer Event Listeners
+        $('#btn-pptx-toggle-edit')?.addEventListener('click', () => {
+            if (isDrawerOpen) closeEditDrawer();
+            else openEditDrawer();
+        });
+        $('#btn-pptx-close-drawer')?.addEventListener('click', closeEditDrawer);
+        $('#btn-pptx-drawer-done')?.addEventListener('click', closeEditDrawer);
+
+        $('#pptx-edit-inp-title')?.addEventListener('input', (e) => {
+            const s = slides[currentSlideIdx];
+            if (!s) return;
+            s.title = e.target.value;
+            const titleEl = $('#pptx-slide-title');
+            if (titleEl) titleEl.textContent = s.title;
+            // Update active thumbnail title without full rerender
+            const activeThumb = $('#pptx-thumb-list .pptx-thumb-item.active .small');
+            if (activeThumb) activeThumb.textContent = s.title || 'Ohne Titel';
+        });
+
+        $('#pptx-edit-inp-bullets')?.addEventListener('input', (e) => {
+            const s = slides[currentSlideIdx];
+            if (!s) return;
+            s.bodyLines = e.target.value.split('\n').map((l) => l.trim()).filter(Boolean);
+            renderSlideContent(s);
+        });
+
+        $('#pptx-edit-inp-file')?.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            if (!file.type.startsWith('image/')) {
+                toast('Bitte eine gültige Bilddatei auswählen.', 'error');
+                return;
+            }
+            const s = slides[currentSlideIdx];
+            if (!s) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const dataUrl = ev.target.result;
+                const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+                if (matches) {
+                    const mime = matches[1];
+                    const base64 = matches[2];
+                    let ext = mime.split('/')[1] || 'png';
+                    if (ext === 'jpeg') ext = 'jpg';
+                    if (!s.images) s.images = [];
+                    s.images.push({
+                        id: 'img_' + Date.now(),
+                        name: file.name,
+                        ext,
+                        mime,
+                        base64,
+                        dataUrl,
+                    });
+                    renderSlideContent(s);
+                    renderEditDrawerImages(s);
+                    renderThumbnails();
+                    toast('Bild zur Folie hinzugefügt.');
+                }
+            };
+            reader.readAsDataURL(file);
+            e.target.value = '';
+        });
+
+        // Add Slide
+        $('#btn-pptx-add-slide')?.addEventListener('click', () => {
+            const newSlide = {
+                id: 'sld_' + Date.now(),
+                number: currentSlideIdx + 2,
+                title: 'Neue Folie',
+                bodyLines: ['Wichtiger Punkt 1', 'Wichtiger Punkt 2'],
+                images: [],
+            };
+            slides.splice(currentSlideIdx + 1, 0, newSlide);
+            slides.forEach((sld, idx) => { sld.number = idx + 1; });
+            currentSlideIdx++;
+            renderThumbnails();
+            renderSlide(currentSlideIdx);
+            openEditDrawer();
+            toast(`Folie ${currentSlideIdx + 1} hinzugefügt.`);
+        });
+
+        // Delete Slide
+        $('#btn-pptx-del-slide')?.addEventListener('click', () => {
+            if (slides.length <= 1) {
+                toast('Die Präsentation muss mindestens eine Folie enthalten.', 'error');
+                return;
+            }
+            const s = slides[currentSlideIdx];
+            if (!confirm(`Folie ${currentSlideIdx + 1} („${s.title}“) wirklich löschen?`)) {
+                return;
+            }
+            slides.splice(currentSlideIdx, 1);
+            slides.forEach((sld, idx) => { sld.number = idx + 1; });
+            currentSlideIdx = Math.max(0, Math.min(currentSlideIdx, slides.length - 1));
+            renderThumbnails();
+            renderSlide(currentSlideIdx);
+            if (isDrawerOpen) {
+                populateDrawer(slides[currentSlideIdx]);
+            }
+            toast('Folie gelöscht.');
+        });
+
+        // Prev & Next navigation
         $('#btn-pptx-prev')?.addEventListener('click', () => renderSlide(currentSlideIdx - 1));
         $('#btn-pptx-next')?.addEventListener('click', () => renderSlide(currentSlideIdx + 1));
 
-        $$('#pptx-thumb-list [data-slide-idx]').forEach((el) => {
-            el.addEventListener('click', () => {
-                renderSlide(Number(el.dataset.slideIdx));
-            });
+        // Save Presentation to Cloud
+        $('#btn-pptx-save')?.addEventListener('click', async () => {
+            const saveBtn = $('#btn-pptx-save');
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.textContent = '⏳ Speichern…';
+            }
+            try {
+                toast('Speichere Präsentation…');
+                const b64 = await buildPresentationPptxZip(slides);
+                await apiPost('save_binary_base64', {
+                    folder_id: state.currentFolderId,
+                    file_id: fileId,
+                    name: fileName,
+                    base64: b64,
+                });
+                toast('Präsentation erfolgreich in der Cloud gespeichert!');
+                loadCurrentView();
+            } catch (err) {
+                toast('Fehler beim Speichern: ' + err.message, 'error');
+            } finally {
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = '💾 Speichern';
+                }
+            }
+        });
+
+        // Download PPTX file
+        $('#btn-pptx-download')?.addEventListener('click', async () => {
+            try {
+                toast('Erstelle Download-Datei…');
+                const b64 = await buildPresentationPptxZip(slides);
+                const byteCharacters = atob(b64);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName.toLowerCase().endsWith('.pptx') ? fileName : `${fileName}.pptx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                toast('Download-Fehler: ' + err.message, 'error');
+            }
         });
 
         // Fullscreen Beamer Mode
@@ -3064,12 +3578,22 @@
                 document.removeEventListener('keydown', onPptxKeyDown);
                 return;
             }
+            const activeEl = document.activeElement;
+            const tag = activeEl ? activeEl.tagName.toLowerCase() : '';
+            if (tag === 'input' || tag === 'textarea') {
+                if (e.key === 'Escape') {
+                    closeEditDrawer();
+                }
+                return;
+            }
             if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
                 e.preventDefault();
                 renderSlide(currentSlideIdx + 1);
             } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
                 e.preventDefault();
                 renderSlide(currentSlideIdx - 1);
+            } else if (e.key === 'Escape' && isDrawerOpen) {
+                closeEditDrawer();
             }
         };
         document.addEventListener('keydown', onPptxKeyDown);
