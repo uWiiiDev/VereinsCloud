@@ -5063,7 +5063,8 @@
             const res = await apiGet({ action: 'members_applications_list' });
             const apps = res.applications || [];
             const counts = res.counts || { total: 0, pending: 0, verified: 0, accepted: 0 };
-            const publicUrl = res.public_url || (window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '') + '/antrag.php');
+            let rawUrl = res.public_url || (window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '') + '/antrag.php');
+            const publicUrl = rawUrl.replace(/([^:]\/)\/+/g, '$1');
 
             const rowsHtml = apps.map((a) => {
                 let badge = '<span class="badge" style="border-color:var(--warning);color:var(--warning)">⏳ E-Mail unbestätigt</span>';

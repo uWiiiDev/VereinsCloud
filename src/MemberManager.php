@@ -670,6 +670,13 @@ class MemberManager
             elseif ($r['status'] === 'accepted') $acceptedCount++;
         }
 
+        $proto = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ||
+                 (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+                 ? 'https://' : 'http://';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $dir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+        $publicUrl = $proto . $host . $dir . '/antrag.php';
+
         return [
             'applications'    => $rows,
             'counts'          => [
@@ -678,7 +685,7 @@ class MemberManager
                 'verified' => $verifiedCount,
                 'accepted' => $acceptedCount,
             ],
-            'public_url'      => (isset($_SERVER['HTTP_HOST']) ? (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] : '') . dirname($_SERVER['SCRIPT_NAME'] ?? '') . '/antrag.php',
+            'public_url'      => $publicUrl,
         ];
     }
 
