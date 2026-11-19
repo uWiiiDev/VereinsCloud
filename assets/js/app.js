@@ -825,7 +825,7 @@
             await loadCalendarYearView();
             return;
         }
-        if (['members', 'members_stats', 'members_jubilees', 'members_fees'].includes(state.view)) {
+        if (['members', 'members_stats', 'members_jubilees', 'members_fees', 'members_applications'].includes(state.view)) {
             await loadMembersView();
             return;
         }
@@ -5027,6 +5027,7 @@
             members_stats: '📊 Mitgliederverwaltung – Statistik & Altersstruktur',
             members_jubilees: '🎂 Mitgliederverwaltung – Jubiläen & Geburtstage',
             members_fees: '💶 Mitgliederverwaltung – Beiträge & SEPA-Check',
+            members_applications: '📨 Mitgliederverwaltung – Online-Anträge (SGV Böbingen 1920 e.V.)',
         };
         $('#breadcrumbs').innerHTML = `<span class="crumb active">${esc(titles[state.view] || titles.members)}</span>`;
 
@@ -5043,11 +5044,142 @@
                 renderMembersJubileesView();
             } else if (state.view === 'members_fees') {
                 renderMembersFeesView();
+            } else if (state.view === 'members_applications') {
+                await renderMembersApplicationsView();
             } else {
                 renderMembersViewContent();
             }
         } catch (err) {
             toast(err.message, 'error');
+        }
+    }
+
+    // 4. "📨 Online-Anträge" View
+    async function renderMembersApplicationsView() {
+        const container = $('#items-container');
+        container.innerHTML = '<div style="padding:2rem;text-align:center" class="muted">Lade eingegangene Mitgliedsanträge…</div>';
+
+        try {
+            const res = await apiGet({ action: 'members_applications_list' });
+            const apps = res.applications || [];
+            const counts = res.counts || { total: 0, pending: 0, verified: 0, accepted: 0 };
+            const publicUrl = res.public_url || (window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '') + '/antrag.php');
+
+            const rowsHtml = apps.map((a) => {
+                let badge = '<span class="badge" style="border-color:var(--warning);color:var(--warning)">⏳ E-Mail unbestätigt</span>';
+                if (a.status === 'verified') {
+                    badge = '<span class="badge" style="border-color:var(--success);color:var(--success);font-weight:600">✓ Verifiziert</span>';
+                } else if (a.status === 'accepted') {
+                    badge = '<span class="badge badge-shared">🟢 Als Mitglied angelegt</span>';
+                }
+
+                const feeFormatted = (Number(a.fee_amount) || 0).toFixed(2).replace('.', ',') + ' €';
+                const dateStr = a.submitted_at ? a.submitted_at.replace(' ', ' um ') : '—';
+
+                return `
+                    <tr>
+                        <td>
+                            <strong>${esc(a.first_name)} ${esc(a.last_name)}</strong>
+                            <div class="small muted">${esc(a.street)}, ${esc(a.zip)} ${esc(a.city)}</div>
+                        </td>
+                        <td>
+                            <div>${esc(a.email)}</div>
+                            <div class="small muted">${esc(a.mobile || a.phone || '—')}</div>
+                        </td>
+                        <td>
+                            <strong>${esc(a.department || 'Hauptverein')}</strong>
+                            <div class="small muted">${esc(a.fee_type)} (${feeFormatted})</div>
+                        </td>
+                        <td>
+                            ${badge}
+                            <div class="small muted">${esc(dateStr)}</div>
+                        </td>
+                        <td style="text-align:right">
+                            <div style="display:flex;gap:0.35rem;justify-content:flex-end;flex-wrap:wrap">
+                                <a class="btn btn-ghost btn-sm" href="antrag.php?action=view&token=${encodeURIComponent(a.token)}" target="_blank" title="Antrag 1:1 ansehen & drucken">📄 Ansehen</a>
+                                ${a.status !== 'accepted' ? `<button type="button" class="btn btn-primary btn-sm" data-app-accept="${a.id}" title="In die Mitgliederkartei übernehmen">➕ Übernehmen</button>` : ''}
+                                <button type="button" class="btn btn-ghost btn-sm" data-app-del="${a.id}" title="Löschen" style="color:var(--danger)">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.75rem">
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                        <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">📨 Gesamt: <strong>${counts.total}</strong></span>
+                        <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem;border-color:var(--success);color:var(--success)">✓ Verifiziert: <strong>${counts.verified}</strong></span>
+                        <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem;border-color:var(--warning);color:var(--warning)">⏳ Ausstehend: <strong>${counts.pending}</strong></span>
+                        <span class="badge" style="font-size:0.84rem;padding:0.4rem 0.75rem">🟢 Übernommen: <strong>${counts.accepted}</strong></span>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-antrag-link">📋 Link zum Online-Antrag kopieren</button>
+                        <a href="antrag.php" target="_blank" class="btn btn-primary btn-sm">🔗 Öffentliches Formular öffnen</a>
+                    </div>
+                </div>
+
+                <div class="file-table-wrap">
+                    <table class="file-table">
+                        <thead>
+                            <tr>
+                                <th>Name / Anschrift</th>
+                                <th>Kontakt (E-Mail / Tel)</th>
+                                <th>Sparte / Beitrag</th>
+                                <th>Status / Eingereicht</th>
+                                <th style="text-align:right">Aktionen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsHtml || '<tr><td colspan="5" class="empty-cell">Noch keine Online-Anträge eingegangen. Teilen Sie den Link <strong>antrag.php</strong> mit Interessenten oder auf Ihrer Website.</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            $('#btn-copy-antrag-link')?.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(publicUrl);
+                    toast('Link in die Zwischenablage kopiert: ' + publicUrl);
+                } catch (_) {
+                    prompt('Link zum Online-Antrag kopieren:', publicUrl);
+                }
+            });
+
+            $$('[data-app-accept]', container).forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    const appId = Number(btn.dataset.appAccept);
+                    if (!confirm('Diesen Antragsteller verbindlich in die aktive Vereinsmitglieder-Datenbank übernehmen?')) return;
+                    btn.disabled = true;
+                    btn.textContent = '⏳…';
+                    try {
+                        const res = await apiPost('members_application_accept', { id: appId });
+                        toast('Erfolgreich als neues Vereinsmitglied angelegt!');
+                        renderMembersApplicationsView();
+                    } catch (err) {
+                        toast(err.message, 'error');
+                        btn.disabled = false;
+                        btn.textContent = '➕ Übernehmen';
+                    }
+                });
+            });
+
+            $$('[data-app-del]', container).forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    const appId = Number(btn.dataset.appDel);
+                    if (!confirm('Diesen Antrag wirklich unwiderruflich löschen?')) return;
+                    try {
+                        await apiPost('members_application_delete', { id: appId });
+                        toast('Antrag gelöscht.');
+                        renderMembersApplicationsView();
+                    } catch (err) {
+                        toast(err.message, 'error');
+                    }
+                });
+            });
+
+        } catch (err) {
+            container.innerHTML = `<div class="empty-cell" style="color:var(--danger)">Fehler beim Laden: ${esc(err.message)}</div>`;
         }
     }
 

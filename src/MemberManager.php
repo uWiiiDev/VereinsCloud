@@ -623,4 +623,145 @@ class MemberManager
         echo implode("\r\n", $xml);
         exit;
     }
+
+    // =========================================================================
+    // Online-Mitgliedsanträge (Public Membership Applications)
+    // =========================================================================
+
+    public static function listApplications(): array
+    {
+        $pdo = Database::get();
+        $rows = $pdo->query("
+            SELECT id, token, status, first_name, last_name, street, zip, city,
+                   birth_date, birth_place, phone, mobile, email,
+                   join_date, fee_type, fee_amount, department, iban, bic,
+                   account_holder, mandate_ref, submitted_at, verified_at
+            FROM membership_applications
+            ORDER BY submitted_at DESC, id DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $pendingCount  = 0;
+        $verifiedCount = 0;
+        $acceptedCount = 0;
+
+        foreach ($rows as $r) {
+            if ($r['status'] === 'pending') $pendingCount++;
+            elseif ($r['status'] === 'verified') $verifiedCount++;
+            elseif ($r['status'] === 'accepted') $acceptedCount++;
+        }
+
+        return [
+            'applications'    => $rows,
+            'counts'          => [
+                'total'    => count($rows),
+                'pending'  => $pendingCount,
+                'verified' => $verifiedCount,
+                'accepted' => $acceptedCount,
+            ],
+            'public_url'      => (isset($_SERVER['HTTP_HOST']) ? (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] : '') . dirname($_SERVER['SCRIPT_NAME'] ?? '') . '/antrag.php',
+        ];
+    }
+
+    public static function deleteApplication(int $id): void
+    {
+        if ($id <= 0) return;
+        $pdo = Database::get();
+        $pdo->prepare("DELETE FROM membership_applications WHERE id = :id")->execute([':id' => $id]);
+    }
+
+    public static function acceptApplication(int $id): int
+    {
+        $pdo = Database::get();
+        $stmt = $pdo->prepare("SELECT * FROM membership_applications WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        $app = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$app) {
+            throw new RuntimeException('Antrag nicht gefunden.');
+        }
+
+        // Determine fee amount if 0
+        $fee = (float)$app['fee_amount'];
+        if ($fee <= 0) {
+            $ft = strtolower($app['fee_type']);
+            if (str_contains($ft, 'passiv')) $fee = 40.0;
+            elseif (str_contains($ft, 'jugend') || str_contains($ft, 'schueler')) $fee = 45.0;
+            elseif (str_contains($ft, 'familie')) $fee = 130.0;
+            else $fee = 75.0; // Standard Aktiv
+        }
+
+        // Check if member already exists
+        $check = $pdo->prepare("
+            SELECT id FROM club_members
+            WHERE lower(first_name) = lower(:fn) AND lower(last_name) = lower(:ln) AND birth_date = :bd
+        ");
+        $check->execute([
+            ':fn' => $app['first_name'],
+            ':ln' => $app['last_name'],
+            ':bd' => $app['birth_date'],
+        ]);
+        $existing = $check->fetchColumn();
+
+        if ($existing) {
+            $memberId = (int)$existing;
+            $pdo->prepare("
+                UPDATE club_members
+                SET street = :st, zip = :zip, city = :ct, phone = :ph, email = :em,
+                    iban = :ib, fee_amount = :fa, department = :dp,
+                    status = 'Aktiv', updated_at = datetime('now')
+                WHERE id = :id
+            ")->execute([
+                ':st' => $app['street'],
+                ':zip' => $app['zip'],
+                ':ct' => $app['city'],
+                ':ph' => $app['phone'] ?: $app['mobile'],
+                ':em' => $app['email'],
+                ':ib' => $app['iban'],
+                ':fa' => $fee,
+                ':dp' => $app['department'],
+                ':id' => $memberId,
+            ]);
+        } else {
+            // Generate next member_no
+            $maxNoStmt = $pdo->query("SELECT member_no FROM club_members WHERE member_no GLOB '[0-9]*' ORDER BY CAST(member_no AS INTEGER) DESC LIMIT 1");
+            $curMax = (int)$maxNoStmt->fetchColumn();
+            $nextNo = $curMax > 0 ? (string)($curMax + 1) : '1001';
+
+            $ins = $pdo->prepare("
+                INSERT INTO club_members (
+                    member_no, first_name, last_name, birth_date,
+                    street, zip, city, phone, email,
+                    status, department, joined_at, fee_amount,
+                    iban, mandate_ref, notes, updated_at
+                ) VALUES (
+                    :no, :fn, :ln, :bd,
+                    :st, :zip, :ct, :ph, :em,
+                    'Aktiv', :dp, :jd, :fa,
+                    :ib, :mr, :nt, datetime('now')
+                )
+            ");
+            $ins->execute([
+                ':no' => $nextNo,
+                ':fn' => $app['first_name'],
+                ':ln' => $app['last_name'],
+                ':bd' => $app['birth_date'],
+                ':st' => $app['street'],
+                ':zip' => $app['zip'],
+                ':ct' => $app['city'],
+                ':ph' => $app['phone'] ?: $app['mobile'],
+                ':em' => $app['email'],
+                ':dp' => $app['department'],
+                ':jd' => $app['join_date'] ?: date('Y-m-d'),
+                ':fa' => $fee,
+                ':ib' => $app['iban'],
+                ':mr' => $app['mandate_ref'] ?: 'DE47ZZZ00000777063',
+                ':nt' => 'Online-Antrag eingereicht am ' . ($app['submitted_at'] ?? date('Y-m-d')),
+            ]);
+            $memberId = (int)$pdo->lastInsertId();
+        }
+
+        // Mark application as accepted
+        $pdo->prepare("UPDATE membership_applications SET status = 'accepted' WHERE id = :id")->execute([':id' => $id]);
+
+        return $memberId;
+    }
 }

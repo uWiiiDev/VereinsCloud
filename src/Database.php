@@ -254,6 +254,42 @@ class Database
             );
 
             CREATE INDEX IF NOT EXISTS idx_club_members_name ON club_members(last_name, first_name);
+
+            CREATE TABLE IF NOT EXISTS membership_applications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL DEFAULT 'pending',
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                street TEXT NOT NULL,
+                zip TEXT NOT NULL,
+                city TEXT NOT NULL,
+                birth_date TEXT NULL,
+                birth_place TEXT NOT NULL DEFAULT '',
+                phone TEXT NOT NULL DEFAULT '',
+                fax TEXT NOT NULL DEFAULT '',
+                mobile TEXT NOT NULL DEFAULT '',
+                email TEXT NOT NULL,
+                school_student_until TEXT NOT NULL DEFAULT '',
+                special_pass TEXT NOT NULL DEFAULT '',
+                join_date TEXT NOT NULL DEFAULT '',
+                fee_type TEXT NOT NULL DEFAULT 'aktiv',
+                fee_amount REAL NOT NULL DEFAULT 0,
+                department TEXT NOT NULL DEFAULT '',
+                iban TEXT NOT NULL DEFAULT '',
+                bic TEXT NOT NULL DEFAULT '',
+                account_holder TEXT NOT NULL DEFAULT '',
+                mandate_ref TEXT NOT NULL DEFAULT 'DE47ZZZ00000777063',
+                signature_png TEXT NOT NULL,
+                sepa_signature_png TEXT NOT NULL DEFAULT '',
+                submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
+                verified_at TEXT NULL,
+                ip_address TEXT NOT NULL DEFAULT '',
+                user_agent TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_membership_apps_token ON membership_applications(token);
+            CREATE INDEX IF NOT EXISTS idx_membership_apps_status ON membership_applications(status);
         ");
 
         // Auto-migrate 2FA & delegated permission columns on existing users table

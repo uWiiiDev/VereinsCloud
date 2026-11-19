@@ -704,6 +704,26 @@ try {
             }
             MemberManager::streamSepaPain008Xml($_GET);
 
+        case 'members_applications_list':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            jsonResponse(['ok' => true] + MemberManager::listApplications());
+
+        case 'members_application_delete':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            MemberManager::deleteApplication((int)($input['id'] ?? 0));
+            jsonResponse(['ok' => true]);
+
+        case 'members_application_accept':
+            if (empty($user['perm_members'])) {
+                throw new RuntimeException('Keine Berechtigung für die Mitgliederverwaltung.');
+            }
+            $memId = MemberManager::acceptApplication((int)($input['id'] ?? 0));
+            jsonResponse(['ok' => true, 'member_id' => $memId]);
+
         case 'admin_users':
             if (empty($user['has_admin_panel'])) {
                 throw new RuntimeException('Keine Administrationsberechtigung.');

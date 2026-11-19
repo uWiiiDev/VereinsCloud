@@ -232,6 +232,10 @@ $bootData = [
                             <span class="nav-icon">💶</span>
                             <span>Beiträge & SEPA</span>
                         </button>
+                        <button type="button" class="nav-item nav-sub-item" data-view="members_applications">
+                            <span class="nav-icon">📨</span>
+                            <span>Online-Anträge</span>
+                        </button>
                     </div>
                 </div>
             </nav>
