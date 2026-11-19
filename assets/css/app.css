@@ -1527,6 +1527,26 @@ html[data-theme="light"] .alert-success {
     color: var(--text-muted);
 }
 
+.context-sub-menu {
+    position: relative;
+}
+
+.context-sub-menu-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-left: 0.85rem;
+    padding-left: 0.6rem;
+    border-left: 2px solid var(--border);
+    margin-top: 0.2rem;
+    margin-bottom: 0.3rem;
+}
+
+.context-sub-menu-items .dropdown-item {
+    font-size: 0.84rem;
+    padding: 0.4rem 0.65rem;
+}
+
 @media (max-width: 768px) {
     .sidebar {
         position: fixed;

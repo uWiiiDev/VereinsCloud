@@ -291,6 +291,7 @@ $bootData = [
                             <button type="button" class="dropdown-item" id="btn-new-folder">📁 Neuer Ordner</button>
                             <button type="button" class="dropdown-item" id="btn-new-office-doc">📄 Neues Word-/Text-Dokument</button>
                             <button type="button" class="dropdown-item" id="btn-new-office-sheet">📊 Neue Excel-Tabelle (.xlsx)</button>
+                            <button type="button" class="dropdown-item" id="btn-new-office-presentation">📽️ Neue PowerPoint-Präsentation (.pptx)</button>
                             <button type="button" class="dropdown-item" id="btn-new-text">📝 Neue einfache Notizdatei</button>
                         </div>
                     </div>

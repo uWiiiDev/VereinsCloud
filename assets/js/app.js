@@ -1857,14 +1857,33 @@
             `;
         }
         html += `
-            <button type="button" class="dropdown-item" data-bg-act="new_folder">📁 Neuer Ordner</button>
-            <button type="button" class="dropdown-item" data-bg-act="new_text">📝 Neue Textdatei</button>
             <button type="button" class="dropdown-item" data-bg-act="upload">⬆️ Dateien hochladen</button>
+            <div class="dropdown-divider"></div>
+            <button type="button" class="dropdown-item" id="btn-ctx-toggle-new" style="justify-content:space-between">
+                <span>➕ Neu erstellen</span>
+                <span id="ctx-new-chevron" style="font-size:0.75rem">▾</span>
+            </button>
+            <div class="context-sub-menu-items" id="ctx-new-subitems">
+                <button type="button" class="dropdown-item" data-bg-act="new_folder">📁 Neuer Ordner</button>
+                <button type="button" class="dropdown-item" data-bg-act="new_office_doc">📄 Neues Word-/Text-Dokument</button>
+                <button type="button" class="dropdown-item" data-bg-act="new_office_sheet">📊 Neue Excel-Tabelle (.xlsx)</button>
+                <button type="button" class="dropdown-item" data-bg-act="new_office_presentation">📽️ Neue PowerPoint-Präsentation (.pptx)</button>
+                <button type="button" class="dropdown-item" data-bg-act="new_text">📝 Neue einfache Notiz</button>
+            </div>
         `;
 
         menu.innerHTML = html;
         backdrop.classList.remove('hidden');
         menu.classList.remove('hidden');
+
+        $('#btn-ctx-toggle-new', menu)?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const sub = $('#ctx-new-subitems', menu);
+            const chev = $('#ctx-new-chevron', menu);
+            if (!sub) return;
+            const isHidden = sub.classList.toggle('hidden');
+            if (chev) chev.textContent = isHidden ? '▸' : '▾';
+        });
 
         const rect = menu.getBoundingClientRect();
         menu.style.left = `${Math.min(clientX, Math.max(12, window.innerWidth - rect.width - 12))}px`;
@@ -1878,6 +1897,12 @@
                     pasteClipboard(targetFolderId);
                 } else if (act === 'new_folder') {
                     $('#btn-new-folder')?.click();
+                } else if (act === 'new_office_doc') {
+                    $('#btn-new-office-doc')?.click();
+                } else if (act === 'new_office_sheet') {
+                    $('#btn-new-office-sheet')?.click();
+                } else if (act === 'new_office_presentation') {
+                    $('#btn-new-office-presentation')?.click();
                 } else if (act === 'new_text') {
                     $('#btn-new-text')?.click();
                 } else if (act === 'upload') {
@@ -2524,6 +2549,66 @@
     $('#btn-new-office-sheet')?.addEventListener('click', () => {
         openOfficeSheetEditor(null, 'Tabelle.xlsx', null);
     });
+
+    $('#btn-new-office-presentation')?.addEventListener('click', () => {
+        openNewPresentationModal();
+    });
+
+    function openNewPresentationModal() {
+        openModal('📽️ Neue PowerPoint-Präsentation erstellen', `
+            <form id="new-pptx-form">
+                <div class="form-group">
+                    <label>Präsentationsname</label>
+                    <input type="text" name="name" class="input" value="Vereinspräsentation.pptx" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label>Titel der ersten Folie</label>
+                    <input type="text" name="title" class="input" value="Willkommen zur Versammlung" required>
+                </div>
+                <div class="form-group">
+                    <label>Stichpunkte / Inhalt erste Folie</label>
+                    <textarea name="body" class="input" rows="3" placeholder="Ein Punkt pro Zeile">Begrüßung und Eröffnung&#10;Feststellung der Beschlussfähigkeit&#10;Berichte des Vorstands</textarea>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Präsentation anlegen</button>
+            </form>
+        `);
+        $('#new-pptx-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            let name = (fd.get('name') || 'Praesentation.pptx').toString().trim();
+            if (!name.toLowerCase().endsWith('.pptx')) name += '.pptx';
+            const title = (fd.get('title') || 'Präsentation').toString().trim();
+            const bodyLines = (fd.get('body') || '').toString().split('\n').map((l) => l.trim()).filter(Boolean);
+
+            if (typeof JSZip === 'undefined') {
+                toast('JSZip nicht geladen.', 'error');
+                return;
+            }
+
+            try {
+                const zip = new JSZip();
+                zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>');
+                zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>');
+                zip.file('ppt/presentation.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldIdLst><p:sldId id="256" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"/></p:sldIdLst></p:presentation>');
+                zip.file('ppt/_rels/presentation.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>');
+
+                const paraXml = [title, ...bodyLines].map((t) => `<p:sp><p:txBody><a:p><a:r><a:t>${esc(t)}</a:t></a:r></a:p></p:txBody></p:sp>`).join('');
+                zip.file('ppt/slides/slide1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree>${paraXml}</p:spTree></p:cSld></p:sld>`);
+
+                const b64 = await zip.generateAsync({ type: 'base64' });
+                await apiPost('save_binary_base64', {
+                    folder_id: state.currentFolderId,
+                    name,
+                    base64: b64,
+                });
+                closeModal();
+                toast(`Präsentation "${name}" erstellt!`);
+                loadCurrentView();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+    }
 
     // Helper: Detect Office document types
     function isOfficeDocFile(name = '') {
