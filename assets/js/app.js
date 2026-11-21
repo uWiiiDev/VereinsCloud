@@ -362,9 +362,9 @@
         state.user = null;
         $('#app-shell').classList.add('hidden');
         $('#auth-screen').classList.remove('hidden');
-        $('#setup-card').classList.add('hidden');
+        $('#setup-card')?.classList.add('hidden');
         $('#twofactor-card')?.classList.add('hidden');
-        $('#login-card').classList.remove('hidden');
+        $('#login-card')?.classList.remove('hidden');
     }
 
     function enterAppShell() {

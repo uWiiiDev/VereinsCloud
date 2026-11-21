@@ -16,4 +16,7 @@ Options -Indexes
     RewriteEngine On
     RewriteCond %{HTTP:Authorization} .+
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Verhindere ungültige Pfade wie /index.php/assets/... durch Umleitung auf die saubere Basis
+    RewriteRule ^index\.php/(.*)$ /$1 [R=301,L]
 </IfModule>

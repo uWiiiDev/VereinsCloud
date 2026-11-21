@@ -21,6 +21,13 @@ $host    = $_SERVER['HTTP_HOST'] ?? 'localhost';
 $baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/index.php'), '/\\');
 $baseUrl = $proto . '://' . $host . ($baseDir !== '' ? $baseDir : '');
 
+// Wenn die URL mit /index.php/ aufgerufen wurde (z.B. durch Lesezeichen oder WebDAV-Verwechslung),
+// sofort auf die saubere Root-URL umleiten, damit relative Asset-Pfade niemals fehlschlagen.
+if (!empty($_SERVER['PATH_INFO'])) {
+    header('Location: ' . $baseUrl . '/');
+    exit;
+}
+
 $bootData = [
     'app_name'     => $settings['app_name'] ?? 'PureCloud',
     'has_any_user' => $hasAnyUser,
@@ -35,6 +42,7 @@ $bootData = [
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <base href="<?= htmlspecialchars($baseUrl, ENT_QUOTES, 'UTF-8') ?>/">
     <title><?= $appName ?></title>
     <meta name="theme-color" content="#0f172a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -47,10 +55,38 @@ $bootData = [
     <link rel="stylesheet" href="assets/vendor/xspreadsheet.css">
     <link rel="stylesheet" href="assets/vendor/quill.snow.css">
     <link rel="stylesheet" href="assets/css/app.css?v=<?= @filemtime(__DIR__ . '/assets/css/app.css') ?: 1 ?>">
+    <style>
+        /* Kritisches Fallback-CSS: Greift sofort inline, selbst bei blockiertem oder verzögertem externen Stylesheet */
+        .hidden, [hidden] { display: none !important; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        .auth-body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            box-sizing: border-box;
+        }
+        .auth-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 2.25rem 2rem;
+            width: 100%;
+            max-width: 420px;
+            box-sizing: border-box;
+        }
+    </style>
 </head>
 <body>
     <!-- Non-blocking Drag & Drop Indicator Banner -->
-    <div id="drop-overlay" class="drop-overlay hidden">
+    <div id="drop-overlay" class="drop-overlay hidden" hidden>
         <div class="drop-overlay-box">
             <span class="drop-icon">📥</span>
             <span id="drop-target-label">Dateien hier ablegen (oder direkt auf einen Ordner ziehen)</span>
@@ -58,13 +94,14 @@ $bootData = [
     </div>
 
     <!-- Auth / Setup Screen -->
-    <div id="auth-screen" class="auth-body <?= $user ? 'hidden' : '' ?>">
-        <!-- First-Run Admin Setup -->
-        <div id="setup-card" class="auth-card <?= $hasAnyUser ? 'hidden' : '' ?>">
+    <div id="auth-screen" class="auth-body <?= $user ? 'hidden' : '' ?>" <?= $user ? 'style="display:none"' : '' ?>>
+        <?php if (!$hasAnyUser): ?>
+        <!-- First-Run Admin Setup (Nur im HTML, wenn noch kein Admin existiert) -->
+        <div id="setup-card" class="auth-card">
             <div class="auth-logo">☁️</div>
             <h1>Willkommen bei PureCloud</h1>
             <p class="muted">Erstellen Sie das erste Administrator-Konto. Die SQLite-Datenbank wurde bereits automatisch eingerichtet.</p>
-            <div id="setup-error" class="alert alert-error hidden"></div>
+            <div id="setup-error" class="alert alert-error hidden" hidden></div>
             <form id="setup-form">
                 <div class="form-group">
                     <label>Name der Cloud</label>
@@ -85,13 +122,13 @@ $bootData = [
                 <button type="submit" class="btn btn-primary btn-block">Cloud jetzt starten</button>
             </form>
         </div>
-
-        <!-- Login Card -->
-        <div id="login-card" class="auth-card <?= !$hasAnyUser ? 'hidden' : '' ?>">
+        <?php else: ?>
+        <!-- Login Card (Regulärer Login) -->
+        <div id="login-card" class="auth-card">
             <div class="auth-logo">☁️</div>
             <h1 id="login-app-title"><?= $appName ?></h1>
             <p class="muted">Melden Sie sich an, um auf Ihre Dateien zuzugreifen.</p>
-            <div id="login-error" class="alert alert-error hidden"></div>
+            <div id="login-error" class="alert alert-error hidden" hidden></div>
             <form id="login-form">
                 <div class="form-group">
                     <label>Benutzername</label>
@@ -115,9 +152,10 @@ $bootData = [
                 </button>
             </div>
         </div>
+        <?php endif; ?>
 
         <!-- 2FA Verification Card -->
-        <div id="twofactor-card" class="auth-card hidden">
+        <div id="twofactor-card" class="auth-card hidden" hidden>
             <div class="auth-logo">🔐</div>
             <h1>Zwei-Faktor-Prüfung</h1>
             <p class="muted small" id="twofactor-subtitle">Bitte bestätigen Sie Ihre Anmeldung mit dem zweiten Faktor.</p>
